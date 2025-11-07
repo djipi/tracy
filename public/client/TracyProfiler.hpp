@@ -40,6 +40,17 @@
 #  include <chrono>
 #endif
 
+#ifdef TRACY_EMULATED_CLOCK
+// Import emulated CPU information
+//extern "C"
+//{
+    extern int64_t g_total_cpu_cycles;
+    extern int64_t g_tracy_time_offset;
+    extern double NANOS_PER_CYCLE;
+    extern bool g_tracy_emulation;
+//}
+#endif
+
 #ifndef TracyConcat
 #  define TracyConcat(x,y) TracyConcatIndirect(x,y)
 #endif
@@ -197,6 +208,16 @@ public:
 
     static tracy_force_inline int64_t GetTime()
     {
+#ifdef TRACY_EMULATED_CLOCK
+#if 1
+    // if( GetProfiler().IsConnected() && (g_tracy_time_offset > 0) && g_total_cpu_cycles)
+    if( ( g_tracy_time_offset > 0 ) && (g_total_cpu_cycles || g_tracy_emulation))
+    {
+        // use emulated clock only when profiling is active
+        return static_cast<int64_t>( g_total_cpu_cycles * NANOS_PER_CYCLE ) + g_tracy_time_offset;
+    }
+#endif
+#endif
 #ifdef TRACY_HW_TIMER
 #  if defined TARGET_OS_IOS && TARGET_OS_IOS == 1
         if( HardwareSupportsInvariantTSC() ) return mach_absolute_time();
