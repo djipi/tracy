@@ -26,10 +26,11 @@ else()
     CPMAddPackage(
         NAME capstone
         GITHUB_REPOSITORY capstone-engine/capstone
-        GIT_TAG 6.0.0-Alpha1
+        GIT_TAG 6.0.0-Alpha5
         OPTIONS
             "CAPSTONE_X86_ATT_DISABLE ON"
             "CAPSTONE_ALPHA_SUPPORT OFF"
+            "CAPSTONE_ARC_SUPPORT OFF"
             "CAPSTONE_HPPA_SUPPORT OFF"
             "CAPSTONE_LOONGARCH_SUPPORT OFF"
             "CAPSTONE_M680X_SUPPORT OFF"
@@ -54,7 +55,7 @@ else()
     )
     add_library(TracyCapstone INTERFACE)
     target_include_directories(TracyCapstone INTERFACE ${capstone_SOURCE_DIR}/include/capstone)
-    target_link_libraries(TracyCapstone INTERFACE capstone)
+    target_link_libraries(TracyCapstone INTERFACE capstone_static)
 endif()
 
 # GLFW
@@ -93,7 +94,7 @@ else()
     CPMAddPackage(
         NAME freetype
         GITHUB_REPOSITORY freetype/freetype
-        GIT_TAG VER-2-13-3
+        GIT_TAG VER-2-14-1
         OPTIONS
             "FT_DISABLE_HARFBUZZ ON"
             "FT_WITH_HARFBUZZ OFF"
@@ -136,7 +137,7 @@ target_include_directories(TracyGetOpt PUBLIC ${GETOPT_DIR})
 CPMAddPackage(
     NAME ImGui
     GITHUB_REPOSITORY ocornut/imgui
-    GIT_TAG v1.92.1-docking
+    GIT_TAG v1.92.4-docking
     DOWNLOAD_ONLY TRUE
     PATCHES
         "${CMAKE_CURRENT_LIST_DIR}/imgui-emscripten.patch"
@@ -189,7 +190,7 @@ endif()
 CPMAddPackage(
     NAME PPQSort
     GITHUB_REPOSITORY GabTux/PPQSort
-    VERSION 1.0.5
+    VERSION 1.0.6
     PATCHES
         "${CMAKE_CURRENT_LIST_DIR}/ppqsort-nodebug.patch"
     EXCLUDE_FROM_ALL TRUE
@@ -246,7 +247,7 @@ if(NOT EMSCRIPTEN)
     CPMAddPackage(
         NAME usearch
         GITHUB_REPOSITORY unum-cloud/usearch
-        GIT_TAG v2.19.1
+        GIT_TAG v2.21.3
         EXCLUDE_FROM_ALL TRUE
     )
 
@@ -279,7 +280,7 @@ if(NOT EMSCRIPTEN)
         CPMAddPackage(
             NAME libcurl
             GITHUB_REPOSITORY curl/curl
-            GIT_TAG curl-8_14_1
+            GIT_TAG curl-8_17_0
             OPTIONS
                 "BUILD_STATIC_LIBS ON"
                 "BUILD_SHARED_LIBS OFF"
