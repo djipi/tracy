@@ -137,7 +137,7 @@ target_include_directories(TracyGetOpt PUBLIC ${GETOPT_DIR})
 CPMAddPackage(
     NAME ImGui
     GITHUB_REPOSITORY ocornut/imgui
-    GIT_TAG v1.92.4-docking
+    GIT_TAG v1.92.5-docking
     DOWNLOAD_ONLY TRUE
     PATCHES
         "${CMAKE_CURRENT_LIST_DIR}/imgui-emscripten.patch"
@@ -161,6 +161,11 @@ target_include_directories(TracyImGui PUBLIC ${ImGui_SOURCE_DIR})
 target_link_libraries(TracyImGui PUBLIC TracyFreetype)
 target_compile_definitions(TracyImGui PRIVATE "IMGUI_ENABLE_FREETYPE")
 #target_compile_definitions(TracyImGui PUBLIC "IMGUI_DISABLE_OBSOLETE_FUNCTIONS")
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND LEGACY)
+    find_package(X11 REQUIRED)
+    target_link_libraries(TracyImGui PUBLIC ${X11_LIBRARIES})
+endif()
 
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(TracyImGui PRIVATE "IMGUI_DISABLE_DEBUG_TOOLS" "IMGUI_DISABLE_DEMO_WINDOWS")
@@ -271,7 +276,7 @@ if(NOT EMSCRIPTEN)
 
     # libcurl
 
-    pkg_check_modules(LIBCURL libcurl)
+    pkg_check_modules(LIBCURL libcurl>=7.87.0)
     if (LIBCURL_FOUND AND NOT DOWNLOAD_LIBCURL)
         add_library(TracyLibcurl INTERFACE)
         target_include_directories(TracyLibcurl INTERFACE ${LIBCURL_INCLUDE_DIRS})
