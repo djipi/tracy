@@ -23,6 +23,7 @@ struct Session
     EVENT_TRACE_PROPERTIES properties = {};
     CHAR name[64] = {};
     CONTROLTRACE_ID handle = 0;
+    CLASSIC_EVENT_ID stackwalk[8] = {};
 };
 
 // ---- ETW Events ----------
@@ -213,6 +214,8 @@ static ULONG StopSession( Session& session )
         return ETWError( status );
     // once stopped, the session handle becomes invalid
     session.handle = 0;
+    for ( auto&& sw : session.stackwalk )
+        sw = {};
     return ERROR_SUCCESS;
 }
 
@@ -289,11 +292,24 @@ static ULONG EnableStackWalk( Session& session, GUID EventGuid, UCHAR Opcode )
 {
     if( !IsOS64Bit() )
         return 0 /* ERROR_SUCCESS */;   // TODO: return error instead?
-    CLASSIC_EVENT_ID stackId[1] = {};
-    stackId[0].EventGuid = EventGuid;
-    stackId[0].Type = Opcode;
-    ULONG status = TraceSetInformation( session.handle, TraceStackTracingInfo, &stackId, sizeof( stackId ) );
-    return ETWError( status );
+    // TraceStackTracingInfo: Turns on stack trace collection for the specified kernel events
+    //                        for the specified logger. It also turns off stack tracing for
+    //                        all kernel events not on this list, regardless of prior status.
+    // NOTE: It'd be nice if we could rely on TraceQueryInformation(TraceStackTracingInfo)
+    // to retrieve the list of the active stack trace event ids, but even though MSDN says
+    // that it is possible, the query call returns ERROR_NOT_SUPPORTED...
+    // Instead, we keep our own array of active stack trace event ids in the session object.
+    for( auto&& sw : session.stackwalk )
+    {
+        if ( !IsEqualGUID( sw.EventGuid, {} ) )
+            continue;
+        sw.EventGuid = EventGuid;
+        sw.Type = Opcode;
+        size_t count = ( &sw - session.stackwalk ) + 1;
+        ULONG status = TraceSetInformation( session.handle, TraceStackTracingInfo, session.stackwalk, count * sizeof( CLASSIC_EVENT_ID ) );
+        return ETWError( status );
+    }
+    return 0 /* ERROR_SUCCESS */;   // TODO: return error instead?
 }
 
 static ULONG SetCPUProfilingInterval(int microseconds)
@@ -461,7 +477,8 @@ static ULONG EnableVSyncMonitoring( Session& session )
         MSFTReserved62 = 0x4000'0000'0000'0000  // winmeta.h: WINEVENT_KEYWORD_RESERVED_62
                                                 // (Microsoft-Windows-DxgKrnl/Performance, according to logman)
     };
-    ULONGLONG MatchAnyKeyword = Keyword::MSFTReserved62 | Keyword::DxgKrnlPresent | Keyword::DxgKrnlBase;
+    // DxgKrnlPresent bit was added in Win11, but we do not want to break Win10, so do not put it in MatchAllKeyword
+    ULONGLONG MatchAnyKeyword = Keyword::MSFTReserved62 /*| Keyword::DxgKrnlPresent*/ | Keyword::DxgKrnlBase;
     ULONGLONG MatchAllKeyword = MatchAnyKeyword;
 
     EVENT_FILTER_EVENT_ID fe = {};
