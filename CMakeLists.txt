@@ -78,7 +78,7 @@ endif()
 
 # Public dependency on some libraries required when using Mingw
 if(WIN32 AND ${CMAKE_CXX_COMPILER_ID} MATCHES "GNU|Clang")
-    target_link_libraries(TracyClient PUBLIC ws2_32 dbghelp)
+    target_link_libraries(TracyClient PUBLIC ws2_32 dbghelp secur32)
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
@@ -146,6 +146,8 @@ set_option(TRACY_IGNORE_MEMORY_FAULTS "Ignore instrumentation errors from memory
 # advanced
 set_option(TRACY_VERBOSE "[advanced] Verbose output from the profiler" OFF)
 mark_as_advanced(TRACY_VERBOSE)
+set_option(TRACY_NO_INTERNAL_MESSAGE "[advanced] Prevent the profiler from logging messages" OFF)
+mark_as_advanced(TRACY_NO_INTERNAL_MESSAGE)
 set_option(TRACY_DEMANGLE "[advanced] Don't use default demangling function - You'll need to provide your own" OFF)
 mark_as_advanced(TRACY_DEMANGLE)
 if(rocprofiler-sdk_FOUND)

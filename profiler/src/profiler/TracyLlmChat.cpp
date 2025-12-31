@@ -23,10 +23,8 @@ struct RoleData
 
 constexpr std::array roles = {
     RoleData { ICON_FA_USER, ImVec4( 0.75f, 1.f, 0.25f, 1.f ), ImVec4( 0.64f, 0.76f, 0.41f, 1.f ) },
-    RoleData { ICON_FA_TERMINAL, ImVec4( 1.f, 0.5f, 0.5f, 1.f ), ImVec4( 1.f, 0.65f, 0.65f, 1.f ) },
     RoleData { ICON_FA_FILE, ImVec4( 0.5f, 0.75f, 1.f, 1.f ), ImVec4( 0.65f, 0.75f, 1.f, 1.f ) },
     RoleData { ICON_FA_ROBOT, ImVec4( 0.4f, 0.5f, 1.f, 1.f ), ImVec4( 1.f, 1.f, 1.f, 1.f ) },
-    RoleData { ICON_FA_CODE, ImVec4( 1.0f, 0.5f, 1.f, 1.f ), ImVec4( 1.f, 0.65f, 1.f, 1.f ) },
     RoleData { ICON_FA_CIRCLE_EXCLAMATION, ImVec4( 1.f, 0.25f, 0.25f, 1.f ), ImVec4( 1.f, 0.25f, 0.25f, 1.f ) },
     RoleData { ICON_FA_TRASH, ImVec4( 1.0f, 0.25f, 0.25f, 1.f ), ImVec4( 1.f, 1.f, 1.f, 1.f ) },
     RoleData { ICON_FA_ARROWS_ROTATE, ImVec4( 1.0f, 0.25f, 0.25f, 1.f ), ImVec4( 1.f, 1.f, 1.f, 1.f ) },
@@ -74,7 +72,7 @@ void TracyLlmChat::End()
     }
 }
 
-bool TracyLlmChat::Turn( TurnRole role, const std::string& content )
+bool TracyLlmChat::Turn( TurnRole role, const nlohmann::json& json )
 {
     bool keep = true;
     const auto& roleData = roles[(int)role];
@@ -95,7 +93,7 @@ bool TracyLlmChat::Turn( TurnRole role, const std::string& content )
             m_role = role;
             ImGui::Spacing();
         }
-        int trashIdx = ( role == TurnRole::Assistant || role == TurnRole::AssistantDebug ) ? (int)TurnRole::Regenerate : (int)TurnRole::Trash;
+        int trashIdx = role == TurnRole::Assistant ? (int)TurnRole::Regenerate : (int)TurnRole::Trash;
         ImGui::PushID( m_roleIdx++ );
         auto diff = m_maxWidth - m_width[(int)role];
         if( ImGui::IsMouseHoveringRect( ImGui::GetCursorScreenPos(), ImGui::GetCursorScreenPos() + ImVec2( m_maxWidth, ImGui::GetTextLineHeight() ) ) )
@@ -127,132 +125,148 @@ bool TracyLlmChat::Turn( TurnRole role, const std::string& content )
     if( role == TurnRole::Error )
     {
         ImGui::PushFont( g_fonts.mono, FontNormal );
-        ImGui::TextWrapped( "%s", content.c_str() );
+        if( json.contains( "content" ) )
+        {
+            ImGui::TextWrapped( "%s", json["content"].get_ref<const std::string&>().c_str() );
+        }
+        else
+        {
+            ImGui::TextWrapped( "No content in error message. This shouldn't happen?" );
+        }
         ImGui::PopFont();
     }
     else if( role == TurnRole::Attachment )
     {
         constexpr auto tagSize = sizeof( "<attachment>\n" ) - 1;
 
-        auto j = nlohmann::json::parse( content.c_str() + tagSize, content.c_str() + content.size() );
-        const auto& type = j["type"].get_ref<const std::string&>();
+        if( json.contains( "content" ) )
+        {
+            auto& content = json["content"].get_ref<const std::string&>();
+            auto j = nlohmann::json::parse( content.c_str() + tagSize, content.c_str() + content.size() );
+            const auto& type = j["type"].get_ref<const std::string&>();
 
-        NormalScope();
-        ImGui::PushID( m_thinkIdx++ );
-        const bool expand = ImGui::TreeNode( "Attachment" );
-        ImGui::SameLine();
-        ImGui::TextDisabled( "(%s)", type.c_str() );
-        if( expand )
-        {
-            ImGui::PushFont( g_fonts.mono, FontNormal );
-            ImGui::TextWrapped( "%s", content.c_str() + tagSize );
-            ImGui::PopFont();
-            ImGui::TreePop();
-        }
-        ImGui::PopID();
-    }
-    else if( role != TurnRole::Assistant )
-    {
-        m_markdown.Print( content.c_str(), content.size() );
-    }
-    else if( content.starts_with( "<tool_output>\n" ) )
-    {
-        ThinkScope();
-        if( m_thinkOpen )
-        {
-            ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.5f, 0.5f, 0.5f, 1.f ) );
-            if( content == ForgetMsg )
+            NormalScope();
+            ImGui::PushID( m_thinkIdx++ );
+            const bool expand = ImGui::TreeNode( "Attachment" );
+            ImGui::SameLine();
+            ImGui::TextDisabled( "(%s)", type.c_str() );
+            if( expand )
             {
-                ImGui::TextUnformatted( ICON_FA_RECYCLE " Tool response removed to save context space" );
-                m_subIdx++;
+                ImGui::PushFont( g_fonts.mono, FontNormal );
+                ImGui::TextWrapped( "%s", content.c_str() + tagSize );
+                ImGui::PopFont();
+                ImGui::TreePop();
             }
-            else
-            {
-                ImGui::PushID( m_subIdx++ );
-                if( ImGui::TreeNode( ICON_FA_REPLY " Tool response..." ) )
-                {
-                    ImGui::PushFont( g_fonts.mono, FontNormal );
-                    ImGui::TextWrapped( "%s", content.c_str() + sizeof( "<tool_output>\n" ) - 1 );
-                    ImGui::PopFont();
-                    ImGui::TreePop();
-                }
-                ImGui::PopID();
-            }
-            ImGui::PopStyleColor();
+            ImGui::PopID();
         }
         else
         {
-            m_subIdx++;
+            ImGui::TextWrapped( "No content in attachment. This shouldn't happen?" );
+        }
+    }
+    else if( role != TurnRole::Assistant )
+    {
+        if( json.contains( "content" ) )
+        {
+            auto& content = json["content"].get_ref<const std::string&>();
+            m_markdown.Print( content.c_str(), content.size() );
         }
     }
     else
     {
-        size_t pos = 0;
-        size_t end = content.size();
-        while( pos < end )
+        if( json.contains( "reasoning_content" ) )
         {
-            auto posThink = content.find( "<think>", pos );
-            auto posTool = content.find( "<tool>", pos );
-            auto minPos = std::min( posThink, posTool );
-
-            if( pos != minPos )
+            ThinkScope();
+            if( m_thinkOpen )
             {
-                NormalScope();
-                m_markdown.Print( content.c_str() + pos, std::min( end, minPos ) - pos );
+                auto& reasoning = json["reasoning_content"].get_ref<const std::string&>();
+                PrintThink( reasoning.c_str(), reasoning.size() );
             }
-
-            pos = minPos;
-            if( pos == std::string::npos ) break;
-
-            if( minPos == posThink )
+        }
+        if( json.contains( "tool_calls" ) )
+        {
+            ThinkScope();
+            if( m_thinkOpen )
             {
-                pos += sizeof( "<think>" ) - 1;
-                while( content[pos] == '\n' || content[pos] == ' ' ) pos++;
-                auto endThink = content.find( "</think>", pos );
-                if( endThink != pos )
+                auto calls = json["tool_calls"].dump( 2 );
+                PrintToolCall( calls.c_str(), calls.size() );
+            }
+        }
+        if( json.contains( "content" ) )
+        {
+            auto& content = json["content"].get_ref<const std::string&>();
+            if( json["role"].get_ref<const std::string&>() == "tool" )
+            {
+                ThinkScope();
+                if( m_thinkOpen )
                 {
-                    ThinkScope();
-                    if( m_thinkOpen ) PrintThink( content.c_str() + pos, std::min( end, endThink ) - pos );
+                    ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.5f, 0.5f, 0.5f, 1.f ) );
+                    if( content == ForgetMsg )
+                    {
+                        ImGui::TextUnformatted( ICON_FA_RECYCLE " Tool response removed to save context space" );
+                        m_subIdx++;
+                    }
+                    else
+                    {
+                        auto& name = json["name"].get_ref<const std::string&>();
+                        auto& id = json["tool_call_id"].get_ref<const std::string&>();
+                        ImGui::PushID( m_subIdx++ );
+                        char buf[1024];
+                        snprintf( buf, sizeof( buf ), ICON_FA_REPLY " Tool response (%s/%s)...", name.c_str(), id.substr( 0, 8 ).c_str() );
+                        if( ImGui::TreeNode( buf ) )
+                        {
+                            std::string parsed;
+                            try
+                            {
+                                parsed = nlohmann::json::parse( content.c_str() ).dump( 2 );
+                            }
+                            catch( nlohmann::json::exception& )
+                            {
+                                parsed = content;
+                            }
+                            ImGui::PushFont( g_fonts.mono, FontNormal );
+                            ImGui::TextWrapped( "%s", parsed.c_str() );
+                            ImGui::PopFont();
+                            ImGui::TreePop();
+                        }
+                        ImGui::PopID();
+                    }
+                    ImGui::PopStyleColor();
                 }
-                if( endThink == std::string::npos ) break;
-                pos = endThink;
-                do
+                else
                 {
-                    pos += sizeof( "</think>" ) - 1;
-                    while( content[pos] == '\n' || content[pos] == ' ' ) pos++;
+                    m_subIdx++;
                 }
-                while( strncmp( content.c_str() + pos, "</think>", sizeof( "</think>" ) - 1 ) == 0 );
             }
             else
             {
-                assert( minPos == posTool );
-                pos += sizeof( "<tool>" ) - 1;
-                while( content[pos] == '\n' || content[pos] == ' ' ) pos++;
-                auto endTool = content.find( "</tool>", pos );
-                ThinkScope();
-                if( m_thinkOpen ) PrintToolCall( content.c_str() + pos, std::min( end, endTool ) - pos );
-                if( endTool == std::string::npos ) break;
-                pos = endTool + sizeof( "</tool>" ) - 1;
-                while( content[pos] == '\n' || content[pos] == ' ' ) pos++;
+                if( !content.empty() )
+                {
+                    NormalScope();
+                    m_markdown.Print( content.c_str(), content.size() );
+                }
             }
         }
     }
     ImGui::PopStyleColor();
 
-    if( ImGui::IsMouseClicked( ImGuiMouseButton_Right ) &&
-        ImGui::IsWindowHovered() &&
-        ImGui::IsMouseHoveringRect( posStart, ImGui::GetCursorScreenPos() + ImVec2( ImGui::GetContentRegionAvail().x, 0 ) ) )
+    if( json.contains( "content" ) )
     {
-        ImGui::OpenPopup( "ContextMenu" );
-    }
-    if( ImGui::BeginPopup( "ContextMenu" ) )
-    {
-        if( ImGui::Selectable( ICON_FA_CLIPBOARD " Copy" ) )
+        if( ImGui::IsMouseClicked( ImGuiMouseButton_Right ) &&
+            ImGui::IsWindowHovered() &&
+            ImGui::IsMouseHoveringRect( posStart, ImGui::GetCursorScreenPos() + ImVec2( ImGui::GetContentRegionAvail().x, 0 ) ) )
         {
-            ImGui::SetClipboardText( content.c_str() );
-            ImGui::CloseCurrentPopup();
+            ImGui::OpenPopup( "ContextMenu" );
         }
-        ImGui::EndPopup();
+        if( ImGui::BeginPopup( "ContextMenu" ) )
+        {
+            if( ImGui::Selectable( ICON_FA_CLIPBOARD " Copy" ) )
+            {
+                ImGui::SetClipboardText( json["content"].get_ref<const std::string&>().c_str() );
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
     }
 
     return keep;

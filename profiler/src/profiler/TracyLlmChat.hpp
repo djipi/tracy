@@ -1,7 +1,7 @@
 #ifndef __TRACYLLMCHAT_HPP__
 #define __TRACYLLMCHAT_HPP__
 
-#include <string>
+#include <nlohmann/json.hpp>
 
 #include "TracyMarkdown.hpp"
 
@@ -11,15 +11,13 @@ namespace tracy
 class TracyLlmChat
 {
 public:
-    static constexpr const char* ForgetMsg = "<tool_output>\n...";
+    static constexpr const char* ForgetMsg = "...";
 
     enum class TurnRole
     {
         User,
-        UserDebug,
         Attachment,
         Assistant,
-        AssistantDebug,
         Error,
         // virtual roles below
         Trash,
@@ -33,7 +31,7 @@ public:
     void Begin();
     void End();
 
-    bool Turn( TurnRole role, const std::string& content );
+    bool Turn( TurnRole role, const nlohmann::json& json );
 
 private:
     void NormalScope();
