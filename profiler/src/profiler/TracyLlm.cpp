@@ -84,7 +84,7 @@ void TracyLlm::Draw()
         ImGui::PushFont( g_fonts.normal, FontBig );
         ImGui::Dummy( ImVec2( 0, ( ImGui::GetContentRegionAvail().y - ImGui::GetTextLineHeight() * 2 ) * 0.5f ) );
         TextCentered( ICON_FA_HOURGLASS );
-        TextCentered( "Please wait..." );
+        TextCentered( "Please wait…" );
         DrawWaitingDots( s_time );
         ImGui::PopFont();
         ImGui::End();
@@ -100,7 +100,7 @@ void TracyLlm::Draw()
         ImGui::Dummy( ImVec2( 0, ( ImGui::GetContentRegionAvail().y - ImGui::GetTextLineHeight() * 7 ) * 0.5f ) );
         TextCentered( ICON_FA_BOOK_BOOKMARK );
         ImGui::Spacing();
-        TextCentered( "Building manual embeddings..." );
+        TextCentered( "Building manual embeddings…" );
         ImGui::Spacing();
         DrawWaitingDots( s_time );
         ImGui::TextUnformatted( "" );
@@ -164,6 +164,7 @@ void TracyLlm::Draw()
         const auto sz = std::min( InputBufferSize-1, s_config.llmAddress.size() );
         memcpy( m_apiInput, s_config.llmAddress.c_str(), sz );
         m_apiInput[sz] = 0;
+        ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.x );
         bool changed = ImGui::InputTextWithHint( "##api", "http://localhost:1234", m_apiInput, InputBufferSize );
         ImGui::SameLine();
         if( ImGui::BeginCombo( "##presets", nullptr, ImGuiComboFlags_NoPreview ) )
@@ -176,7 +177,6 @@ void TracyLlm::Draw()
             constexpr static std::array presets = {
                 Preset { "Llama.cpp", "http://localhost:8080" },
                 Preset { "LM Studio", "http://localhost:1234" },
-                Preset { "Ollama", "http://localhost:11434" },
             };
             for( auto& preset : presets )
             {
@@ -205,6 +205,7 @@ void TracyLlm::Draw()
         }
         else
         {
+            ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x );
             if( ImGui::BeginCombo( "##model", models[m_modelIdx].name.c_str() ) )
             {
                 for( size_t i = 0; i < models.size(); ++i )
@@ -237,6 +238,7 @@ void TracyLlm::Draw()
         }
         else
         {
+            ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x );
             if( ImGui::BeginCombo( "##embedmodel", models[m_embedIdx].name.c_str() ) )
             {
                 for( size_t i = 0; i < models.size(); ++i )
@@ -260,23 +262,28 @@ void TracyLlm::Draw()
                 ImGui::EndCombo();
             }
         }
-
-        ImGui::Checkbox( ICON_FA_TEMPERATURE_HALF " Temperature", &m_setTemperature );
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth( 40 * scale );
-        if( ImGui::InputFloat( "##temperature", &m_temperature, 0, 0, "%.2f" ) ) m_temperature = std::clamp( m_temperature, 0.f, 2.f );
         if( responding ) ImGui::EndDisabled();
 
-        ImGui::Checkbox( ICON_FA_GLOBE " Internet access", &m_tools->m_netAccess );
+        ImGui::Checkbox( ICON_FA_EARTH_AMERICAS " Internet access", &m_tools->m_netAccess );
 
-        if( ImGui::TreeNode( "External services" ) )
+        if( ImGui::TreeNode( "Advanced" ) )
         {
+            if( responding ) ImGui::BeginDisabled();
+            ImGui::Checkbox( ICON_FA_TEMPERATURE_HALF " Temperature", &m_setTemperature );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 40 * scale );
+            if( ImGui::InputFloat( "##temperature", &m_temperature, 0, 0, "%.2f" ) ) m_temperature = std::clamp( m_temperature, 0.f, 2.f );
+            if( responding ) ImGui::EndDisabled();
+
+            ImGui::Checkbox( ICON_FA_LIGHTBULB " Show all thinking regions", &m_allThinkingRegions );
+
             char buf[1024];
 
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted( "User agent:" );
             ImGui::SameLine();
             snprintf( buf, sizeof( buf ), "%s", s_config.llmUserAgent.c_str() );
+            ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x );
             if( ImGui::InputTextWithHint( "##useragent", "Spoof user agent", buf, sizeof( buf ) ) )
             {
                 s_config.llmUserAgent = buf;
@@ -287,6 +294,7 @@ void TracyLlm::Draw()
             ImGui::TextUnformatted( "Google Search Engine:" );
             ImGui::SameLine();
             snprintf( buf, sizeof( buf ), "%s", s_config.llmSearchIdentifier.c_str() );
+            ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize( ICON_FA_HOUSE ).x - ImGui::GetStyle().FramePadding.x * 2 - ImGui::GetStyle().ItemSpacing.x );
             if( ImGui::InputTextWithHint( "##cse", "search identifier", buf, sizeof( buf ) ) )
             {
                 s_config.llmSearchIdentifier = buf;
@@ -299,6 +307,7 @@ void TracyLlm::Draw()
             ImGui::TextUnformatted( "Google Search API Key:" );
             ImGui::SameLine();
             snprintf( buf, sizeof( buf ), "%s", s_config.llmSearchApiKey.c_str() );
+            ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize( ICON_FA_HOUSE ).x - ImGui::GetStyle().FramePadding.x * 2 - ImGui::GetStyle().ItemSpacing.x );
             if( ImGui::InputTextWithHint( "##csekey", "search API key", buf, sizeof( buf ) ) )
             {
                 s_config.llmSearchApiKey = buf;
@@ -424,6 +433,20 @@ void TracyLlm::Draw()
         ImGui::PushID( m_chatId );
         m_chatUi->Begin();
 
+        int thinkIdx = 0;
+        if( !m_allThinkingRegions )
+        {
+            for( thinkIdx = m_chat.size(); thinkIdx > 0; thinkIdx-- )
+            {
+                const auto& line = m_chat[thinkIdx-1];
+                if( !line.contains( "role" ) ) break;
+                const auto& roleStr = line["role"].get_ref<const std::string&>();
+                if( roleStr == "tool" ) continue;
+                if( roleStr == "assistant" && !line.contains( "content" ) ) continue;
+                break;
+            }
+        }
+
         int turnIdx = 0;
         for( auto it = m_chat.begin(); it != m_chat.end(); ++it )
         {
@@ -444,7 +467,16 @@ void TracyLlm::Draw()
             }
 
             ImGui::PushID( turnIdx++ );
-            if( !m_chatUi->Turn( role, line ) )
+            TracyLlmChat::Think think = TracyLlmChat::Think::Hide;
+            if( thinkIdx <= turnIdx )
+            {
+                think = TracyLlmChat::Think::Show;
+            }
+            else if( thinkIdx == turnIdx + 1 && role == TracyLlmChat::TurnRole::Assistant && line.contains( "content" ) )
+            {
+                think = TracyLlmChat::Think::ToolCall;
+            }
+            if( !m_chatUi->Turn( role, line, think, turnIdx == m_chat.size() - 1 ) )
             {
                 if( role == TracyLlmChat::TurnRole::Assistant )
                 {
@@ -520,11 +552,11 @@ void TracyLlm::Draw()
         ImGui::SameLine();
         if( disabled )
         {
-            ImGui::TextUnformatted( "Stopping..." );
+            ImGui::TextUnformatted( "Stopping…" );
         }
         else
         {
-            ImGui::TextUnformatted( "Generating..." );
+            ImGui::TextUnformatted( "Generating…" );
         }
         s_wasActive = true;
     }
@@ -540,13 +572,14 @@ void TracyLlm::Draw()
         buttonSize.x += ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetStyle().ItemSpacing.x;
         ImGui::PushItemWidth( ImGui::GetContentRegionAvail().x - buttonSize.x );
         if( inputChanged ) ImGui::GetInputTextState( ImGui::GetCurrentWindow()->GetID( "##chat_input" ) )->ReloadUserBufAndMoveToEnd();
-        bool send = ImGui::InputTextWithHint( "##chat_input", "Write your question here...", m_input, InputBufferSize, ImGuiInputTextFlags_EnterReturnsTrue );
+        bool send = ImGui::InputTextWithHint( "##chat_input", "Write your question here…", m_input, InputBufferSize, ImGuiInputTextFlags_EnterReturnsTrue );
         ImGui::SameLine();
         if( *m_input == 0 ) ImGui::BeginDisabled();
         send |= ImGui::Button( buttonText );
         if( *m_input == 0 ) ImGui::EndDisabled();
         if( send )
         {
+            if( m_chat.size() <= 1 ) UpdateSystemPrompt();
             auto ptr = m_input;
             while( *ptr )
             {
@@ -655,21 +688,40 @@ void TracyLlm::UpdateModels()
     }
 }
 
+static void Replace( std::string& str, const std::string& from, const std::string& to )
+{
+    std::string::size_type pos;
+    while( ( pos = str.find( from ) ) != std::string::npos )
+    {
+        str.replace( pos, from.size(), to );
+    }
+}
+
 void TracyLlm::ResetChat()
 {
+    *m_input = 0;
+    m_usedCtx = 0;
+    m_chatId++;
+    m_chat.clear();
+
+    UpdateSystemPrompt();
+}
+
+void TracyLlm::UpdateSystemPrompt()
+{
+    assert( m_chat.size() <= 1 );
+    m_chat.clear();
+
+    static constexpr std::string UserToken = "%USER%";
+    static constexpr std::string TimeToken = "%TIME%";
+
     auto userName = GetUserFullName();
     if( !userName ) userName = GetUserLogin();
 
     auto systemPrompt = std::string( m_systemPrompt->data(), m_systemPrompt->size() );
 
-    systemPrompt += "\n\n# Real time data\n\n";
-    systemPrompt += "Current date: " + m_tools->GetCurrentTime() + "\n";
-    systemPrompt += "User name: " + std::string( userName ) + "\n";
-
-    *m_input = 0;
-    m_usedCtx = 0;
-    m_chatId++;
-    m_chat.clear();
+    Replace( systemPrompt, UserToken, userName );
+    Replace( systemPrompt, TimeToken, m_tools->GetCurrentTime() );
 
     AddMessage( std::move( systemPrompt ), "system" );
 }
@@ -796,7 +848,7 @@ void TracyLlm::SendMessage( std::unique_lock<std::mutex>& lock )
     try
     {
         auto chat = m_chat;
-        AddMessageBlocking( "", "assistant", lock );
+        AddMessageBlocking( { { "role", "assistant" } }, lock );
 
         nlohmann::json req;
         req["model"] = m_api->GetModels()[m_modelIdx].name;

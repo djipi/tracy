@@ -8,6 +8,7 @@
 #include "TracyLlmChat.hpp"
 #include "TracyMouse.hpp"
 #include "../Fonts.hpp"
+#include "../../public/common/TracyForceInline.hpp"
 
 namespace tracy
 {
@@ -34,6 +35,38 @@ constexpr size_t NumRoles = roles.size();
 static_assert( NumRoles == (int)TracyLlmChat::TurnRole::None );
 
 
+static tracy_force_inline int codepointlen( char c )
+{
+    if( ( c & 0x80 ) == 0 ) return 1;
+    if( ( c & 0x20 ) == 0 ) return 2;
+    if( ( c & 0x10 ) == 0 ) return 3;
+    assert( ( c & 0x08 ) == 0 );
+    return 4;
+}
+
+static size_t utflen( const char* str )
+{
+    size_t ret = 0;
+    while( *str != '\0' )
+    {
+        str += codepointlen( *str );
+        ret++;
+    }
+    return ret;
+}
+
+static const char* utfendl( const char* str, int len )
+{
+    int l = 0;
+    while( l < len && *str != '\0' )
+    {
+        str += codepointlen( *str );
+        l++;
+    }
+    return str;
+}
+
+
 TracyLlmChat::TracyLlmChat()
     : m_width( new float[NumRoles] )
 {
@@ -58,7 +91,6 @@ void TracyLlmChat::Begin()
     m_thinkActive = false;
     m_thinkOpen = false;
     m_thinkIdx = 0;
-    m_subIdx = 0;
     m_roleIdx = 0;
 }
 
@@ -72,11 +104,12 @@ void TracyLlmChat::End()
     }
 }
 
-bool TracyLlmChat::Turn( TurnRole role, const nlohmann::json& json )
+bool TracyLlmChat::Turn( TurnRole role, const nlohmann::json& json, Think think, bool last )
 {
     bool keep = true;
     const auto& roleData = roles[(int)role];
-    if( role != m_role || role == TurnRole::Attachment || role == TurnRole::Error )
+    const bool roleChange = role != m_role;
+    if( roleChange || role == TurnRole::Attachment || role == TurnRole::Error )
     {
         if( m_role != TurnRole::None )
         {
@@ -88,7 +121,7 @@ bool TracyLlmChat::Turn( TurnRole role, const nlohmann::json& json )
         m_thinkOpen = false;
 
         bool hover = false;
-        if( m_role != role )
+        if( roleChange )
         {
             m_role = role;
             ImGui::Spacing();
@@ -174,68 +207,70 @@ bool TracyLlmChat::Turn( TurnRole role, const nlohmann::json& json )
     }
     else
     {
-        if( json.contains( "reasoning_content" ) )
+        if( think == Think::Show && json.contains( "reasoning_content" ) )
         {
-            ThinkScope();
+            auto& reasoning = json["reasoning_content"].get_ref<const std::string&>();
+            ThinkScope( !roleChange );
             if( m_thinkOpen )
             {
-                auto& reasoning = json["reasoning_content"].get_ref<const std::string&>();
                 PrintThink( reasoning.c_str(), reasoning.size() );
             }
-        }
-        if( json.contains( "tool_calls" ) )
-        {
-            ThinkScope();
-            if( m_thinkOpen )
+            else if( last && !json.contains( "content" ) )
             {
-                auto calls = json["tool_calls"].dump( 2 );
-                PrintToolCall( calls.c_str(), calls.size() );
+                const auto cutlen = std::max( int( utflen( reasoning.c_str() ) ) - 40, 0 );
+                const auto cut = utfendl( reasoning.c_str(), cutlen );
+                std::string str = cut;
+                for( auto& c : str )
+                {
+                    if( c == '\n' ) c = ' ';
+                }
+                ImGui::SameLine();
+                ImGui::PushStyleColor( ImGuiCol_Text, 0xFF555555 );
+                ImGui::Text( "…%s", str.c_str() );
+                ImGui::PopStyleColor();
             }
         }
         if( json.contains( "content" ) )
         {
             auto& content = json["content"].get_ref<const std::string&>();
-            if( json["role"].get_ref<const std::string&>() == "tool" )
+            auto& roleStr = json["role"].get_ref<const std::string&>();
+            if( roleStr == "tool" )
             {
-                ThinkScope();
-                if( m_thinkOpen )
+                if( think == Think::Show )
                 {
-                    ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.5f, 0.5f, 0.5f, 1.f ) );
-                    if( content == ForgetMsg )
+                    ThinkScope( !roleChange );
+                    if( m_thinkOpen )
                     {
-                        ImGui::TextUnformatted( ICON_FA_RECYCLE " Tool response removed to save context space" );
-                        m_subIdx++;
-                    }
-                    else
-                    {
-                        auto& name = json["name"].get_ref<const std::string&>();
-                        auto& id = json["tool_call_id"].get_ref<const std::string&>();
-                        ImGui::PushID( m_subIdx++ );
-                        char buf[1024];
-                        snprintf( buf, sizeof( buf ), ICON_FA_REPLY " Tool response (%s/%s)...", name.c_str(), id.substr( 0, 8 ).c_str() );
-                        if( ImGui::TreeNode( buf ) )
+                        ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.5f, 0.5f, 0.5f, 1.f ) );
+                        if( content == ForgetMsg )
                         {
-                            std::string parsed;
-                            try
-                            {
-                                parsed = nlohmann::json::parse( content.c_str() ).dump( 2 );
-                            }
-                            catch( nlohmann::json::exception& )
-                            {
-                                parsed = content;
-                            }
-                            ImGui::PushFont( g_fonts.mono, FontNormal );
-                            ImGui::TextWrapped( "%s", parsed.c_str() );
-                            ImGui::PopFont();
-                            ImGui::TreePop();
+                            ImGui::TextUnformatted( ICON_FA_RECYCLE " Tool response removed to save context space" );
                         }
-                        ImGui::PopID();
+                        else
+                        {
+                            auto& name = json["name"].get_ref<const std::string&>();
+                            auto& id = json["tool_call_id"].get_ref<const std::string&>();
+                            char buf[1024];
+                            snprintf( buf, sizeof( buf ), ICON_FA_REPLY " Tool response (%s/%s)…", name.c_str(), id.substr( 0, 8 ).c_str() );
+                            if( ImGui::TreeNode( buf ) )
+                            {
+                                std::string parsed;
+                                try
+                                {
+                                    parsed = nlohmann::json::parse( content.c_str() ).dump( 2 );
+                                }
+                                catch( nlohmann::json::exception& )
+                                {
+                                    parsed = content;
+                                }
+                                ImGui::PushFont( g_fonts.mono, FontNormal );
+                                ImGui::TextWrapped( "%s", parsed.c_str() );
+                                ImGui::PopFont();
+                                ImGui::TreePop();
+                            }
+                        }
+                        ImGui::PopStyleColor();
                     }
-                    ImGui::PopStyleColor();
-                }
-                else
-                {
-                    m_subIdx++;
                 }
             }
             else
@@ -244,7 +279,17 @@ bool TracyLlmChat::Turn( TurnRole role, const nlohmann::json& json )
                 {
                     NormalScope();
                     m_markdown.Print( content.c_str(), content.size() );
+                    if( !last && think == Think::Hide && roleStr == "assistant" ) ImGui::Spacing();
                 }
+            }
+        }
+        if( think != Think::Hide && json.contains( "tool_calls" ) )
+        {
+            ThinkScope( !roleChange || json.contains( "content" ) );
+            if( m_thinkOpen )
+            {
+                auto calls = json["tool_calls"].dump( 2 );
+                PrintToolCall( calls.c_str(), calls.size() );
             }
         }
     }
@@ -286,13 +331,14 @@ void TracyLlmChat::NormalScope()
     m_thinkActive = false;
 }
 
-void TracyLlmChat::ThinkScope()
+void TracyLlmChat::ThinkScope( bool spacing )
 {
     if( m_thinkActive ) return;
     m_thinkActive = true;
+    if( spacing ) ImGui::Spacing();
     ImGui::PushID( m_thinkIdx++ );
     ImGui::PushStyleColor( ImGuiCol_Text, ThinkColor );
-    m_thinkOpen = ImGui::TreeNode( ICON_FA_LIGHTBULB " Internal thoughts..." );
+    m_thinkOpen = ImGui::TreeNode( ICON_FA_LIGHTBULB " Internal thoughts…" );
 }
 
 void TracyLlmChat::PrintThink( const char* str, size_t size )

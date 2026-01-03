@@ -11,7 +11,7 @@ namespace tracy
 class TracyLlmChat
 {
 public:
-    static constexpr const char* ForgetMsg = "...";
+    static constexpr const char* ForgetMsg = "…";
 
     enum class TurnRole
     {
@@ -25,17 +25,24 @@ public:
         None,
     };
 
+    enum class Think
+    {
+        Hide,
+        Show,
+        ToolCall
+    };
+
     TracyLlmChat();
     ~TracyLlmChat();
 
     void Begin();
     void End();
 
-    bool Turn( TurnRole role, const nlohmann::json& json );
+    bool Turn( TurnRole role, const nlohmann::json& json, Think think, bool last );
 
 private:
     void NormalScope();
-    void ThinkScope();
+    void ThinkScope( bool spacing = false );
 
     void PrintThink( const char* str, size_t size );
     void PrintToolCall( const char* str, size_t size );
@@ -47,7 +54,6 @@ private:
     bool m_thinkActive;
     bool m_thinkOpen;
     int m_thinkIdx;
-    int m_subIdx;
     int m_roleIdx;
 
     Markdown m_markdown;
