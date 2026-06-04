@@ -54,7 +54,8 @@ void View::DrawNotificationArea()
         else
         {
             const auto sif = m_worker.GetSendInFlight();
-            if( sif != 0 )
+            if( sif != 0 ) m_sendInFlightTime = s_time;
+            if( s_time - m_sendInFlightTime < 0.1f )
             {
                 ImGui::SameLine();
                 TextColoredUnformatted( ImVec4( 1, 0.75f, 0, 1 ), ICON_FA_SATELLITE_DISH );
@@ -77,7 +78,10 @@ void View::DrawNotificationArea()
             CrashTooltip();
             if( IsMouseClicked( 0 ) )
             {
-                m_showInfo = true;
+                m_callstackView = {
+                    .id = crash.callstack,
+                    .thread = crash.thread
+                };
             }
             if( IsMouseClicked( 2 ) )
             {
@@ -90,6 +94,22 @@ void View::DrawNotificationArea()
         ImGui::SameLine();
         TextColoredUnformatted( ImVec4( 1, 0.5, 0, 1 ), ICON_FA_EYE_DROPPER );
         TooltipIfHovered( "Sampling data and ghost zones may be displayed wrongly due to data inconsistency. Save and reload the trace to fix this." );
+    }
+    if( m_worker.HasExcessiveZoneDepth() )
+    {
+        ImGui::SameLine();
+        TextColoredUnformatted( ImVec4( 1, 0.5, 0, 1 ), ICON_FA_LAYER_GROUP );
+        if( ImGui::IsItemHovered() )
+        {
+            const auto t = m_worker.GetExcessiveZoneDepthTime();
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted( "Some zones exceed the maximum nesting depth of 256 and are not displayed." );
+            ImGui::Separator();
+            TextFocused( "First occurrence:", TimeToString( t - m_worker.GetFirstTime() ) );
+            ImGui::TextDisabled( "Click to center the view at this time." );
+            ImGui::EndTooltip();
+            if( IsMouseClicked( 0 ) ) CenterAtTime( t );
+        }
     }
     if( m_vd.drawEmptyLabels )
     {
@@ -151,7 +171,6 @@ void View::DrawNotificationArea()
             if( IsMouseClicked( 0 ) ) m_vd.drawZones = true;
         }
     }
-#ifndef TRACY_NO_STATISTICS
     if( !m_vd.ghostZones )
     {
         ImGui::SameLine();
@@ -164,7 +183,6 @@ void View::DrawNotificationArea()
             if( IsMouseClicked( 0 ) ) m_vd.ghostZones = true;
         }
     }
-#endif
     if( !m_vd.drawLocks )
     {
         ImGui::SameLine();
@@ -227,12 +245,7 @@ void View::DrawNotificationArea()
     if( !m_worker.IsBackgroundDone() )
     {
         ImGui::SameLine();
-        const auto pos = ImGui::GetCursorPos();
-        auto draw = ImGui::GetWindowDrawList();
-        draw->AddCircleFilled( pos + ImVec2( ty * 0.5f + 0 * ty, ty * 0.675f ), ty * ( 0.15f + 0.2f * ( pow( cos( s_time * 3.5f + 0.3f ), 16.f ) ) ), 0xFFBBBBBB, 12 );
-        draw->AddCircleFilled( pos + ImVec2( ty * 0.5f + 1 * ty, ty * 0.675f ), ty * ( 0.15f + 0.2f * ( pow( cos( s_time * 3.5f        ), 16.f ) ) ), 0xFFBBBBBB, 12 );
-        draw->AddCircleFilled( pos + ImVec2( ty * 0.5f + 2 * ty, ty * 0.675f ), ty * ( 0.15f + 0.2f * ( pow( cos( s_time * 3.5f - 0.3f ), 16.f ) ) ), 0xFFBBBBBB, 12 );
-        ImGui::Dummy( ImVec2( ty * 3, ty ) );
+        DrawWaitingDots( s_time, false );
         auto rmin = ImGui::GetItemRectMin();
         const auto rmax = ImGui::GetItemRectMax();
         if( ImGui::IsMouseHoveringRect( rmin, rmax ) )

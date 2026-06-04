@@ -51,6 +51,10 @@
 
 #include "TracySystem.hpp"
 
+#ifdef TRACY_PLATFORM_HEADER
+#  include TRACY_PLATFORM_HEADER
+#endif
+
 #if defined _WIN32
 extern "C" typedef HRESULT (WINAPI *t_SetThreadDescription)( HANDLE, PCWSTR );
 extern "C" typedef HRESULT (WINAPI *t_GetThreadDescription)( HANDLE, PWSTR* );
@@ -69,7 +73,9 @@ namespace detail
 
 TRACY_API uint32_t GetThreadHandleImpl()
 {
-#if defined _WIN32
+#if defined TRACY_HAS_CUSTOM_THREAD_ID
+    return PlatformGetThreadId();
+#elif defined _WIN32
     static_assert( sizeof( decltype( GetCurrentThreadId() ) ) <= sizeof( uint32_t ), "Thread handle too big to fit in protocol" );
     return uint32_t( GetCurrentThreadId() );
 #elif defined __APPLE__
@@ -168,26 +174,22 @@ TRACY_API void SetThreadNameWithHint( const char* name, int32_t groupHint )
     }
 #elif defined _GNU_SOURCE && !defined __EMSCRIPTEN__
     {
+#if defined __APPLE__
+        pthread_setname_np( name );
+#else
         const auto sz = strlen( name );
         if( sz <= 15 )
         {
-#if defined __APPLE__
-            pthread_setname_np( name );
-#else
             pthread_setname_np( pthread_self(), name );
-#endif
         }
         else
         {
             char buf[16];
             memcpy( buf, name, 15 );
             buf[15] = '\0';
-#if defined __APPLE__
-            pthread_setname_np( buf );
-#else
             pthread_setname_np( pthread_self(), buf );
-#endif
         }
+#endif
     }
 #elif defined __QNX__
     {
@@ -345,7 +347,9 @@ TRACY_API const char* GetEnvVar( const char* name )
 
 TRACY_API const char* GetUserLogin()
 {
-#if defined _WIN32
+#if defined TRACY_HAS_CUSTOM_USER_INFO
+    return PlatformGetUserLogin();
+#elif defined _WIN32
 #  if defined TRACY_WIN32_NO_DESKTOP
     return "(?)";
 #  else
@@ -367,14 +371,18 @@ TRACY_API const char* GetUserLogin()
 
 TRACY_API const char* GetUserFullName()
 {
-#if defined _WIN32
+#if defined TRACY_HAS_CUSTOM_USER_INFO
+    return PlatformGetUserFullName();
+#elif defined _WIN32
+#  if !defined TRACY_WIN32_NO_DESKTOP
     static char buf[1024];
     ULONG size = sizeof( buf );
     if( GetUserNameExA( NameDisplay, buf, &size ) ) return buf;
+#  endif
     return nullptr;
 #elif defined __ANDROID__
     const auto passwd = getpwuid( getuid() );
-    if( passwd && *passwd->pw_gecos ) return passwd->pw_gecos;
+    if( passwd && passwd->pw_gecos && *passwd->pw_gecos ) return passwd->pw_gecos;
     return nullptr;
 #else
     static char buf[4*1024];

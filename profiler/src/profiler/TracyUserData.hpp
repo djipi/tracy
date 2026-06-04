@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "TracyViewData.hpp"
+
 namespace tracy
 {
 
@@ -24,28 +26,40 @@ public:
     void Init( const char* program, uint64_t time );
 
     const std::string& GetDescription() const { return m_description; }
-    bool SetDescription( const char* description );
+    void SetDescription( const char* description );
 
     void LoadState( ViewData& data );
-    void SaveState( const ViewData& data );
+    void StoreState( const ViewData& data );
     void StateShouldBePreserved();
 
-    void LoadAnnotations( std::vector<std::unique_ptr<Annotation>>& data );
-    void SaveAnnotations( const std::vector<std::unique_ptr<Annotation>>& data );
+    void LoadAnnotations( std::vector<std::shared_ptr<Annotation>>& data );
+    void StoreAnnotations( const std::vector<std::shared_ptr<Annotation>>& data );
 
-    bool LoadSourceSubstitutions( std::vector<SourceRegex>& data );
-    void SaveSourceSubstitutions( const std::vector<SourceRegex>& data );
+    void LoadSourceSubstitutions( std::vector<SourceRegex>& data );
+    void StoreSourceSubstitutions( const std::vector<SourceRegex>& data );
+
+    void Save();
 
     const char* GetConfigLocation() const;
 
 private:
-    FILE* OpenFile( const char* filename, bool write );
-    void Remove( const char* filename );
+    FILE* OpenFile( bool write );
+    FILE* OpenFileLegacy( const char* filename );
+
+    bool Load();
+
+    void LoadLegacyDescription();
+    void LoadLegacyState();
+    void LoadLegacyAnnotations();
+    void LoadLegacySourceSubstitutions();
 
     std::string m_program;
     uint64_t m_time;
 
     std::string m_description;
+    ViewData m_viewData;
+    std::vector<std::shared_ptr<Annotation>> m_annotations;
+    std::vector<SourceRegex> m_sourceSubstitutions;
 
     bool m_preserveState;
 };

@@ -117,7 +117,6 @@ void View::DrawInfo()
         }
         TextFocused( "Call stack samples:", RealToString( m_worker.GetCallstackSampleCount() ) );
         TextFocused( "Ghost zones:", RealToString( m_worker.GetGhostZonesCount() ) );
-#ifndef TRACY_NO_STATISTICS
         TextFocused( "Child sample symbols:", RealToString( m_worker.GetChildSamplesCountSyms() ) );
         if( ImGui::IsItemHovered() )
         {
@@ -126,7 +125,6 @@ void View::DrawInfo()
             ImGui::EndTooltip();
         }
         TextFocused( "Context switch samples:", RealToString( m_worker.GetContextSwitchSampleCount() ) );
-#endif
         TextFocused( "Hardware samples:", RealToString( m_worker.GetHwSampleCount() ) );
         if( ImGui::IsItemHovered() )
         {
@@ -676,7 +674,7 @@ void View::DrawInfo()
                                 const auto c = uint32_t( ( sin( s_time * 10 ) * 0.25 + 0.75 ) * 255 );
                                 const auto color = 0xFF000000 | ( c << 16 ) | ( c << 8 ) | c;
                                 DrawLine( draw, ImVec2( dpos.x + framePos, dpos.y ), ImVec2( dpos.x + framePos, dpos.y+Height-2 ), color );
-                                m_wasActive = true;
+                                m_wasActive.store( true, std::memory_order_release );
                             }
                         }
                     }
@@ -865,24 +863,7 @@ void View::DrawInfo()
             m_sourceSubstitutions.erase( m_sourceSubstitutions.begin() + remove );
             changed = true;
         }
-
-        if( changed )
-        {
-            bool regexValid = true;
-            for( auto& v : m_sourceSubstitutions )
-            {
-                try
-                {
-                    v.regex.assign( v.pattern );
-                }
-                catch( std::regex_error& )
-                {
-                    regexValid = false;
-                    break;
-                }
-            }
-            m_sourceRegexValid = regexValid;
-        }
+        if( changed ) ValidateSourceRegex();
 
         ImGui::Checkbox("Enforce source file modification time older than trace capture time", &m_validateSourceAge);
 
@@ -891,7 +872,28 @@ void View::DrawInfo()
 
     ImGui::Separator();
     TextFocused( "PID:", RealToString( m_worker.GetPid() ) );
-    TextFocused( "Host info:", m_worker.GetHostInfo().c_str() );
+    TextDisabledUnformatted( "Host info:" );
+    ImGui::Indent();
+    const auto hostInfo = m_worker.GetHostInfo();
+    const auto hostLines = SplitLines( hostInfo.c_str(), hostInfo.size() );
+    ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( ImGui::GetStyle().ItemSpacing.x, 0.0f ) );
+    for( auto& line : hostLines )
+    {
+        auto pos = line.find( ':' );
+        if( pos != std::string::npos )
+        {
+            pos++;
+            TextFocused( line.substr( 0, pos ).c_str(), line.substr( pos+1 ).c_str() );
+        }
+        else
+        {
+            ImGui::TextUnformatted( line.c_str() );
+        }
+    }
+    ImGui::PopStyleVar();
+    ImGui::Unindent();
+    ImGui::SameLine();
+    ImGui::NewLine();
 
     const auto cpuId = m_worker.GetCpuId();
     if( cpuId != 0 )
@@ -952,14 +954,17 @@ void View::DrawInfo()
         if( crash.callstack != 0 )
         {
             ImGui::SameLine();
-            bool hilite = m_callstackInfoWindow == crash.callstack;
+            bool hilite = m_callstackView.id == crash.callstack;
             if( hilite )
             {
                 SetButtonHighlightColor();
             }
             if( ImGui::Button( ICON_FA_ALIGN_JUSTIFY " Call stack" ) )
             {
-                m_callstackInfoWindow = crash.callstack;
+                m_callstackView = {
+                    .id = crash.callstack,
+                    .thread = crash.thread
+                };
             }
             if( hilite )
             {

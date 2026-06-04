@@ -98,6 +98,8 @@ struct LoadProgress
 class Worker
 {
 public:
+    using ThreadCache = std::pair<uint64_t, ThreadData*>;
+
     struct ImportEventTimeline
     {
         uint64_t tid;
@@ -132,7 +134,6 @@ public:
 
         uint64_t _zone_thread;
     };
-    enum { ZoneThreadDataSize = sizeof( ZoneThreadData ) };
 
     struct GpuZoneThreadData
     {
@@ -143,7 +144,6 @@ public:
 
         uint64_t _zone_thread;
     };
-    enum { GpuZoneThreadDataSize = sizeof( GpuZoneThreadData ) };
 
     struct CpuThreadTopology
     {
@@ -378,7 +378,7 @@ private:
         unordered_flat_map<uint64_t, uint64_t> tidToPid;
         unordered_flat_map<uint64_t, CpuThreadData> cpuThreadData;
 
-        std::pair<uint64_t, ThreadData*> threadDataLast = std::make_pair( std::numeric_limits<uint64_t>::max(), nullptr );
+        ThreadCache threadDataLast = std::make_pair( std::numeric_limits<uint64_t>::max(), nullptr );
         std::pair<uint64_t, ContextSwitch*> ctxSwitchLast = std::make_pair( std::numeric_limits<uint64_t>::max(), nullptr );
         uint64_t checkSrclocLast = 0;
         std::pair<uint64_t, uint16_t> shrinkSrclocLast = std::make_pair( std::numeric_limits<uint64_t>::max(), 0 );
@@ -599,8 +599,8 @@ public:
     // GetZoneEnd() will try to infer the end time by looking at child zones (parent zone can't end
     //     before its children have ended).
     // GetZoneEndDirect() will only return zone's direct timing data, without looking at children.
-    tracy_force_inline int64_t GetZoneEnd( const ZoneEvent& ev ) { return ev.IsEndValid() ? ev.End() : GetZoneEndImpl( ev ); }
-    tracy_force_inline int64_t GetZoneEnd( const GpuEvent& ev ) { return ev.GpuEnd() >= 0 ? ev.GpuEnd() : GetZoneEndImpl( ev ); }
+    [[nodiscard]] tracy_force_inline int64_t GetZoneEnd( const ZoneEvent& ev ) const { return ev.IsEndValid() ? ev.End() : GetZoneEndImpl( ev ); }
+    [[nodiscard]] tracy_force_inline int64_t GetZoneEnd( const GpuEvent& ev ) const { return ev.GpuEnd() >= 0 ? ev.GpuEnd() : GetZoneEndImpl( ev ); }
     static tracy_force_inline int64_t GetZoneEndDirect( const ZoneEvent& ev ) { return ev.IsEndValid() ? ev.End() : ev.Start(); }
     static tracy_force_inline int64_t GetZoneEndDirect( const GpuEvent& ev ) { return ev.GpuEnd() >= 0 ? ev.GpuEnd() : ev.GpuStart(); }
 
@@ -609,7 +609,8 @@ public:
     const char* GetString( const StringRef& ref ) const;
     const char* GetString( const StringIdx& idx ) const;
     const char* GetThreadName( uint64_t id ) const;
-    bool IsThreadLocal( uint64_t id );
+    bool IsThreadLocal( uint64_t id ) { return IsThreadLocal( id, m_data.threadDataLast ); }
+    bool IsThreadLocal( uint64_t id, ThreadCache& cache );
     bool IsThreadFiber( uint64_t id );
     const SourceLocation& GetSourceLocation( int16_t srcloc ) const;
     std::pair<const char*, const char*> GetExternalName( uint64_t id ) const;
@@ -677,6 +678,14 @@ public:
     uint8_t GetHandshakeStatus() const { return m_handshake.load( std::memory_order_relaxed ); }
     int64_t GetSamplingPeriod() const { return m_samplingPeriod; }
     bool AreSamplesInconsistent() const { return m_inconsistentSamples; }
+    void NotifyExcessiveZoneDepth( int64_t time )
+    {
+        if( m_excessiveZoneDepthTime.load( std::memory_order_relaxed ) != -1 ) return;
+        int64_t expected = -1;
+        m_excessiveZoneDepthTime.compare_exchange_strong( expected, time, std::memory_order_relaxed );
+    }
+    int64_t GetExcessiveZoneDepthTime() const { return m_excessiveZoneDepthTime.load( std::memory_order_relaxed ); }
+    bool HasExcessiveZoneDepth() const { return GetExcessiveZoneDepthTime() != -1; }
 
     static const LoadProgress& GetLoadProgress() { return s_loadProgress; }
     int64_t GetLoadTime() const { return m_loadTime; }
@@ -702,8 +711,24 @@ public:
     void DoPostponedWorkAll();
 
     void CacheSourceFiles();
+    bool IsFrameExternal( StringIdx filename, StringIdx image ) const;
 
-    StringLocation StoreString(const char* str, size_t sz);
+    tracy_force_inline bool IsImageExternal( StringIdx image, unordered_flat_map<uint32_t, bool>& cache, uint32_t& last ) const
+    {
+        assert( image.Active() );
+        const auto key = image.Raw();
+        if( ( last & 0x00FFFFFF ) == key ) return last >> 24;
+        return IsImageExternalBody( image, key, cache, last );
+    }
+
+    tracy_force_inline bool IsSourceExternal( StringIdx filename, unordered_flat_map<uint32_t, bool>& cache, uint32_t& last ) const
+    {
+        const auto key = filename.Raw();
+        if( ( last & 0x00FFFFFF ) == key ) return last >> 24;
+        return IsSourceExternalBody( filename, key, cache, last );
+    }
+
+    StringLocation StoreString( const char* str, size_t sz );
 
     std::vector<uint32_t>& GetPendingThreadHints() { return m_pendingThreadHints; }
     void ClearPendingThreadHints() { m_pendingThreadHints.clear(); }
@@ -721,10 +746,19 @@ private:
     tracy_force_inline bool Process( const QueueItem& ev );
     tracy_force_inline void ProcessThreadContext( const QueueThreadContext& ev );
     tracy_force_inline void ProcessZoneBegin( const QueueZoneBegin& ev );
+    tracy_force_inline void ProcessZoneBegin64( const QueueZoneBegin& ev );
+    tracy_force_inline void ProcessZoneBegin32( const QueueZoneBegin32& ev );
+    tracy_force_inline void ProcessZoneBegin16( const QueueZoneBegin16& ev );
     tracy_force_inline void ProcessZoneBeginCallstack( const QueueZoneBegin& ev );
+    tracy_force_inline void ProcessZoneBeginCallstack64( const QueueZoneBegin& ev );
+    tracy_force_inline void ProcessZoneBeginCallstack32( const QueueZoneBegin32& ev );
+    tracy_force_inline void ProcessZoneBeginCallstack16( const QueueZoneBegin16& ev );
     tracy_force_inline void ProcessZoneBeginAllocSrcLoc( const QueueZoneBeginLean& ev );
     tracy_force_inline void ProcessZoneBeginAllocSrcLocCallstack( const QueueZoneBeginLean& ev );
     tracy_force_inline void ProcessZoneEnd( const QueueZoneEnd& ev );
+    tracy_force_inline void ProcessZoneEnd64( const QueueZoneEnd& ev );
+    tracy_force_inline void ProcessZoneEnd32( const QueueZoneEnd32& ev );
+    tracy_force_inline void ProcessZoneEnd16( const QueueZoneEnd16& ev );
     tracy_force_inline void ProcessZoneValidation( const QueueZoneValidation& ev );
     tracy_force_inline void ProcessFrameMark( const QueueFrameMark& ev );
     tracy_force_inline void ProcessFrameMarkStart( const QueueFrameMark& ev );
@@ -783,7 +817,13 @@ private:
     tracy_force_inline void ProcessCallstackSerial();
     tracy_force_inline void ProcessCallstack();
     tracy_force_inline void ProcessCallstackSample( const QueueCallstackSample& ev );
+    tracy_force_inline void ProcessCallstackSample64( const QueueCallstackSample& ev );
+    tracy_force_inline void ProcessCallstackSample32( const QueueCallstackSample32& ev );
+    tracy_force_inline void ProcessCallstackSample16( const QueueCallstackSample16& ev );
     tracy_force_inline void ProcessCallstackSampleContextSwitch( const QueueCallstackSample& ev );
+    tracy_force_inline void ProcessCallstackSampleContextSwitch64( const QueueCallstackSample& ev );
+    tracy_force_inline void ProcessCallstackSampleContextSwitch32( const QueueCallstackSample32& ev );
+    tracy_force_inline void ProcessCallstackSampleContextSwitch16( const QueueCallstackSample16& ev );
     tracy_force_inline void ProcessCallstackFrameSize( const QueueCallstackFrameSize& ev );
     tracy_force_inline void ProcessCallstackFrame( const QueueCallstackFrame& ev, bool querySymbols );
     tracy_force_inline void ProcessSymbolInformation( const QueueSymbolInformation& ev );
@@ -859,11 +899,11 @@ private:
         if( m_data.threadDataLast.first == thread ) return m_data.threadDataLast.second;
         return NoticeThreadReal( thread );
     }
-    ThreadData* RetrieveThreadReal( uint64_t thread );
-    tracy_force_inline ThreadData* RetrieveThread( uint64_t thread )
+    ThreadData* RetrieveThreadReal( uint64_t thread, ThreadCache& cache );
+    tracy_force_inline ThreadData* RetrieveThread( uint64_t thread, ThreadCache& cache )
     {
-        if( m_data.threadDataLast.first == thread ) return m_data.threadDataLast.second;
-        return RetrieveThreadReal( thread );
+        if( cache.first == thread ) return cache.second;
+        return RetrieveThreadReal( thread, cache );
     }
 
     tracy_force_inline ThreadData* GetCurrentThreadData();
@@ -979,8 +1019,11 @@ private:
     tracy_force_inline ZoneExtra& AllocZoneExtra( ZoneEvent& ev );
     tracy_force_inline ZoneExtra& RequestZoneExtra( ZoneEvent& ev );
 
-    int64_t GetZoneEndImpl( const ZoneEvent& ev );
-    int64_t GetZoneEndImpl( const GpuEvent& ev );
+    int64_t GetZoneEndImpl( const ZoneEvent& ev ) const;
+    int64_t GetZoneEndImpl( const GpuEvent& ev ) const;
+
+    bool IsImageExternalBody( StringIdx image, uint32_t key, unordered_flat_map<uint32_t, bool>& cache, uint32_t& last ) const;
+    bool IsSourceExternalBody( StringIdx filename, uint32_t key,unordered_flat_map<uint32_t, bool>& cache, uint32_t& last ) const;
 
     void UpdateMbps( int64_t td );
 
@@ -1033,6 +1076,7 @@ private:
     bool m_combineSamples;
     bool m_identifySamples = false;
     bool m_inconsistentSamples;
+    std::atomic<int64_t> m_excessiveZoneDepthTime { -1 };
     bool m_allowStringModification = false;
 
     short_ptr<GpuCtxData> m_gpuCtxMap[256];

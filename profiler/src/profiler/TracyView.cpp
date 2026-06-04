@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <assert.h>
 #include <inttypes.h>
-#include <math.h>
 #include <mutex>
 
 #include "imgui.h"
@@ -28,10 +27,6 @@
 
 #include "imgui_internal.h"
 #include "IconsFontAwesome6.h"
-
-#ifndef M_PI_2
-#define M_PI_2 1.57079632679489661923
-#endif
 
 namespace tracy
 {
@@ -59,11 +54,12 @@ View::View( void(*cbMainThread)(const std::function<void()>&, bool), const char*
     , m_horizontalScrollMultiplier( s_config.horizontalScrollMultiplier )
     , m_verticalScrollMultiplier( s_config.verticalScrollMultiplier )
     , m_manualData( std::make_shared<TracyManualData>() )
+    , m_markdown( this, &m_worker )
 #ifdef __EMSCRIPTEN__
     , m_td( 2, "ViewMt" )
 #else
     , m_td( std::thread::hardware_concurrency(), "ViewMt" )
-    , m_llm( m_worker, *m_manualData )
+    , m_llm( m_worker, *this, *m_manualData )
 #endif
 {
     InitTextEditor();
@@ -89,11 +85,12 @@ View::View( void(*cbMainThread)(const std::function<void()>&, bool), FileRead& f
     , m_horizontalScrollMultiplier( s_config.horizontalScrollMultiplier )
     , m_verticalScrollMultiplier( s_config.verticalScrollMultiplier )
     , m_manualData( std::make_shared<TracyManualData>() )
+    , m_markdown( this, &m_worker )
 #ifdef __EMSCRIPTEN__
     , m_td( 2, "ViewMt" )
 #else
     , m_td( std::thread::hardware_concurrency(), "ViewMt" )
-    , m_llm( m_worker, *m_manualData )
+    , m_llm( m_worker, *this, *m_manualData )
 #endif
 {
     m_notificationTime = 4;
@@ -107,9 +104,9 @@ View::View( void(*cbMainThread)(const std::function<void()>&, bool), FileRead& f
     m_userData.StateShouldBePreserved();
     m_userData.LoadState( m_vd );
     m_userData.LoadAnnotations( m_annotations );
-    m_sourceRegexValid = m_userData.LoadSourceSubstitutions( m_sourceSubstitutions );
+    m_userData.LoadSourceSubstitutions( m_sourceSubstitutions );
+    ValidateSourceRegex();
 
-    if( m_worker.GetCallstackFrameCount() == 0 ) m_showUnknownFrames = false;
     if( m_worker.GetCallstackSampleCount() == 0 ) m_showAllSymbols = true;
 
     Achieve( "loadTrace" );
@@ -119,9 +116,10 @@ View::~View()
 {
     m_worker.Shutdown();
 
-    m_userData.SaveState( m_vd );
-    m_userData.SaveAnnotations( m_annotations );
-    m_userData.SaveSourceSubstitutions( m_sourceSubstitutions );
+    m_userData.StoreState( m_vd );
+    m_userData.StoreAnnotations( m_annotations );
+    m_userData.StoreSourceSubstitutions( m_sourceSubstitutions );
+    m_userData.Save();
 
     if( m_compare.loadThread.joinable() ) m_compare.loadThread.join();
     if( m_saveThread.joinable() ) m_saveThread.join();
@@ -224,6 +222,19 @@ void View::ViewSourceCheckKeyMod( const char* fileName, int line, const char* fu
     else
     {
         ViewSource( fileName, line, functionName );
+    }
+}
+
+void View::ViewSymbolSource( const char* fileName, int line )
+{
+    assert( fileName );
+    if( m_sourceView->SwitchTo( fileName, line, m_worker, *this ) )
+    {
+        m_sourceViewFile = fileName;
+    }
+    else
+    {
+        ViewSource( fileName, line );
     }
 }
 
@@ -686,7 +697,7 @@ static const char* MainWindowButtons[] = {
     ICON_FA_SQUARE " Stopped"
 };
 
-enum { MainWindowButtonsCount = sizeof( MainWindowButtons ) / sizeof( *MainWindowButtons ) };
+constexpr size_t MainWindowButtonsCount = sizeof( MainWindowButtons ) / sizeof( *MainWindowButtons );
 
 bool View::DrawImpl()
 {
@@ -702,7 +713,7 @@ bool View::DrawImpl()
         ImGui::Spacing();
         ImGui::PopFont();
         ImGui::TextUnformatted( "Waiting for connection…" );
-        DrawWaitingDots( s_time );
+        DrawWaitingDotsCentered( s_time );
         ImGui::End();
         return keepOpen;
     }
@@ -756,7 +767,7 @@ bool View::DrawImpl()
     }
 
     const auto& io = ImGui::GetIO();
-    m_wasActive = false;
+    m_wasActive.store( false, std::memory_order_release );
 
     assert( m_shortcut == ShortcutAction::None );
     if( io.KeyCtrl )
@@ -910,7 +921,7 @@ bool View::DrawImpl()
     ImGui::SameLine();
     ToggleButton( ICON_FA_GEAR, m_showOptions );
     ImGui::SameLine();
-    ToggleButton( ICON_FA_TAGS " Messages", m_showMessages );
+    ToggleButton( ICON_FA_COMMENT " Messages", m_showMessages );
     ImGui::SameLine();
     ToggleButton( ICON_FA_MAGNIFYING_GLASS " Find", m_findZone.show );
     ImGui::SameLine();
@@ -1159,7 +1170,7 @@ bool View::DrawImpl()
     if( m_memInfo.show ) DrawMemory();
     if( m_memInfo.showAllocList ) DrawAllocList();
     if( m_compare.show ) DrawCompare();
-    if( m_callstackInfoWindow != 0 ) DrawCallstackWindow();
+    if( m_callstackView.id != 0 ) DrawCallstackWindow();
     if( m_memoryAllocInfoWindow >= 0 ) DrawMemoryAllocWindow();
     if( m_showInfo ) DrawInfo();
     if( m_sourceViewFile ) DrawTextEditor();
@@ -1237,29 +1248,21 @@ bool View::DrawImpl()
                 m_zoomAnim.end1 += delta;
             }
         }
-        m_zoomAnim.progress += io.DeltaTime * 3.33f;
-        if( m_zoomAnim.progress >= 1.f )
-        {
-            m_zoomAnim.active = false;
-            m_vd.zvStart = m_zoomAnim.start1;
-            m_vd.zvEnd = m_zoomAnim.end1;
-        }
-        else
-        {
-            const auto v = sqrt( sin( M_PI_2 * m_zoomAnim.progress ) );
-            m_vd.zvStart = int64_t( m_zoomAnim.start0 + ( m_zoomAnim.start1 - m_zoomAnim.start0 ) * v );
-            m_vd.zvEnd = int64_t( m_zoomAnim.end0 + ( m_zoomAnim.end1 - m_zoomAnim.end0 ) * v );
-        }
+        UpdateZoomAnimation( m_zoomAnim, m_vd.zvStart, m_vd.zvEnd, io.DeltaTime );
     }
 
-    m_wasActive |= m_callstackBuzzAnim.Update( io.DeltaTime );
-    m_wasActive |= m_sampleParentBuzzAnim.Update( io.DeltaTime );
-    m_wasActive |= m_callstackTreeBuzzAnim.Update( io.DeltaTime );
-    m_wasActive |= m_zoneinfoBuzzAnim.Update( io.DeltaTime );
-    m_wasActive |= m_findZoneBuzzAnim.Update( io.DeltaTime );
-    m_wasActive |= m_optionsLockBuzzAnim.Update( io.DeltaTime );
-    m_wasActive |= m_lockInfoAnim.Update( io.DeltaTime );
-    m_wasActive |= m_statBuzzAnim.Update( io.DeltaTime );
+    bool active = m_wasActive.load( std::memory_order_acquire );
+
+    active |= m_callstackBuzzAnim.Update( io.DeltaTime );
+    active |= m_sampleParentBuzzAnim.Update( io.DeltaTime );
+    active |= m_callstackTreeBuzzAnim.Update( io.DeltaTime );
+    active |= m_zoneinfoBuzzAnim.Update( io.DeltaTime );
+    active |= m_findZoneBuzzAnim.Update( io.DeltaTime );
+    active |= m_optionsLockBuzzAnim.Update( io.DeltaTime );
+    active |= m_lockInfoAnim.Update( io.DeltaTime );
+    active |= m_statBuzzAnim.Update( io.DeltaTime );
+
+    m_wasActive.store( active, std::memory_order_release );
 
     if( m_firstFrame )
     {
@@ -1309,14 +1312,17 @@ bool View::DrawImpl()
         TextFocused( "Reason:", m_worker.GetString( crash.message ) );
         if( crash.callstack != 0 )
         {
-            bool hilite = m_callstackInfoWindow == crash.callstack;
+            bool hilite = m_callstackView.id == crash.callstack;
             if( hilite )
             {
                 SetButtonHighlightColor();
             }
             if( ImGui::Button( ICON_FA_ALIGN_JUSTIFY " Call stack" ) )
             {
-                m_callstackInfoWindow = crash.callstack;
+                m_callstackView = {
+                    .id = crash.callstack,
+                    .thread = crash.thread
+                };
             }
             if( hilite )
             {
@@ -1399,12 +1405,12 @@ void View::CrashTooltip()
     ImGui::EndTooltip();
 }
 
-void View::DrawSourceTooltip( const char* filename, uint32_t srcline, int before, int after, bool separateTooltip )
+bool View::DrawSourceTooltip( const char* filename, uint32_t srcline, int before, int after, bool separateTooltip )
 {
-    if( !filename ) return;
-    if( !SourceFileValid( filename, m_worker.GetCaptureTime(), *this, m_worker ) ) return;
+    if( !filename ) return false;
+    if( !SourceFileValid( filename, m_worker.GetCaptureTime(), *this, m_worker ) ) return false;
     m_srcHintCache.Parse( filename, m_worker, *this );
-    if( m_srcHintCache.empty() ) return;
+    if( m_srcHintCache.empty() ) return false;
     ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 0, 0 ) );
     if( separateTooltip ) ImGui::BeginTooltip();
     ImGui::PushFont( g_fonts.mono, FontNormal );
@@ -1457,6 +1463,7 @@ void View::DrawSourceTooltip( const char* filename, uint32_t srcline, int before
     ImGui::PopFont();
     if( separateTooltip ) ImGui::EndTooltip();
     ImGui::PopStyleVar();
+    return true;
 }
 
 bool View::Save( const char* fn, FileCompression comp, int zlevel, bool buildDict, int streams )
@@ -1492,8 +1499,9 @@ void View::SelectThread( uint64_t thread )
 
 bool View::WasActive() const
 {
-    return m_wasActive ||
+    return m_wasActive.load( std::memory_order_acquire ) ||
         m_zoomAnim.active ||
+        ( m_showFlameGraph && m_flameGraphZoomAnim.active ) ||
         m_notificationTime > 0 ||
         !m_playback.pause ||
         m_worker.IsConnected() ||
@@ -1503,7 +1511,7 @@ bool View::WasActive() const
 void View::AddLlmAttachment( const nlohmann::json& json )
 {
 #ifndef __EMSCRIPTEN__
-    m_llm.AddAttachment( json.dump( 2 ), "user" );
+    m_llm.AddAttachmentLocking( json.dump(), "user" );
     m_llm.m_show = true;
 #endif
 }
@@ -1512,10 +1520,18 @@ void View::AddLlmQuery( const char* query )
 {
 #ifndef __EMSCRIPTEN__
     std::string str( query );
-    m_llm.AddMessage( std::move( str ), "user" );
+    m_llm.AddMessageLocking( std::move( str ), "user" );
     m_llm.m_show = true;
-    m_llm.QueueSendMessage();
+    m_llm.QueueSendMessageLocking();
 #endif
+}
+
+void View::ViewCallstack( uint32_t callstack, uint32_t thread )
+{
+    m_callstackView = {
+        .id = callstack,
+        .thread = thread
+    };
 }
 
 }

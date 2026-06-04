@@ -1,4 +1,5 @@
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <iostream>
 #include <mutex>
@@ -6,6 +7,16 @@
 #include <signal.h>
 #include <stdlib.h>
 #include "tracy/Tracy.hpp"
+
+#ifdef TRACY_HAS_LUA
+extern "C"
+{
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
+}
+#include "tracy/TracyLua.hpp"
+#endif
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_JPEG
@@ -15,6 +26,9 @@ struct static_init_test_t
 {
     static_init_test_t()
     {
+#ifdef TRACY_MANUAL_LIFETIME
+        tracy::StartupProfiler();
+#endif
         ZoneScoped;
         ZoneTextF( "Static %s", "init test" );
         TracyLogString( tracy::MessageSeverity::Info, 0, TRACY_CALLSTACK, "Static init" );
@@ -344,6 +358,186 @@ void ArenaAllocatorTest()
     }
 }
 
+#ifdef TRACY_HAS_LUA
+
+void LuaTest()
+{
+    tracy::SetThreadName( "Lua test" );
+
+    lua_State* L = luaL_newstate();
+    luaL_openlibs( L );
+    tracy::LuaRegister( L );
+
+    const char* luaScript = R"(
+        for i = 1, 10 do
+            tracy.ZoneBeginN("Lua iteration")
+            tracy.ZoneText("Iteration: " .. i)
+            tracy.Message("Lua message: " .. i)
+            tracy.ZoneEnd()
+        end
+    )";
+
+    for(;;)
+    {
+        std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
+        ZoneScopedN( "Lua script execution" );
+
+        if( luaL_dostring( L, luaScript ) != 0 )
+        {
+            const char* error = lua_tostring( L, -1 );
+            TracyLogString( tracy::MessageSeverity::Error, 0, TRACY_CALLSTACK, error );
+            lua_pop( L, 1 );
+        }
+
+        std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
+    }
+
+    lua_close( L );
+}
+
+void LuaHookTest()
+{
+    tracy::SetThreadName( "Lua hook test" );
+
+    lua_State* L = luaL_newstate();
+    luaL_openlibs( L );
+    tracy::LuaRegister( L );
+
+    // Enable Lua hook for automatic function profiling
+    lua_sethook( L, tracy::LuaHook, LUA_MASKCALL | LUA_MASKRET, 0 );
+
+    const char* luaScript = R"(
+        function fibonacci(n)
+            if n < 2 then
+                return n
+            end
+            return fibonacci(n-1) + fibonacci(n-2)
+        end
+
+        for i = 1, 5 do
+            local result = fibonacci(10)
+        end
+    )";
+
+    for(;;)
+    {
+        std::this_thread::sleep_for( std::chrono::milliseconds( 20 ) );
+        ZoneScopedN( "Lua hook script execution" );
+
+        if( luaL_dostring( L, luaScript ) != 0 )
+        {
+            const char* error = lua_tostring( L, -1 );
+            TracyLogString( tracy::MessageSeverity::Error, 0, TRACY_CALLSTACK, error );
+            lua_pop( L, 1 );
+        }
+
+        std::this_thread::sleep_for( std::chrono::milliseconds( 20 ) );
+    }
+
+    lua_close( L );
+}
+
+#endif
+
+#ifdef TRACY_FIBERS
+
+struct FakeFiber
+{
+    const char* name;
+    int state = 0;
+    std::atomic_bool running = false;
+};
+
+void RunFiber( FakeFiber& fiber )
+{
+    ZoneScoped;
+
+    switch( fiber.state )
+    {
+    case 0:
+        TracyMessageL( "Fiber start" );
+        std::this_thread::sleep_for( std::chrono::milliseconds( 2 ) );
+        fiber.state = 1;
+        return;
+
+    case 1:
+        TracyMessageL( "Fiber resume" );
+        std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+        fiber.state = 2;
+        return;
+
+    case 2:
+        TracyMessageL( "Fiber end" );
+        fiber.state = 3;
+        return;
+
+    default:
+        fiber.state = 0;
+        return;
+    }
+}
+
+static constexpr size_t FiberThreadCount = 2;
+static constexpr size_t SharedFiberCount = 2;
+
+FakeFiber fiberAPerThread[FiberThreadCount] = { { "FibAThread1" }, { "FibAThread2" } };
+FakeFiber fiberDPerThread[FiberThreadCount] = { { "FibDThread1" }, { "FibDThread2" } };
+FakeFiber fiberB{ "FiberB" };
+FakeFiber fiberC{ "FiberC" };
+std::atomic_int fibIdx = 0;
+
+void FiberSimulation()
+{
+    const int threadIndex = fibIdx++;
+    assert( threadIndex < (int)FiberThreadCount );
+    FakeFiber& thisThreadFibA = fiberAPerThread[threadIndex];
+    FakeFiber& thisThreadFibD = fiberDPerThread[threadIndex];
+    for(;;)
+    {
+        ZoneScopedN( "FiberOuterLoop" );
+        // Enter first fiber from thread
+        TracyFiberEnter( thisThreadFibA.name );
+        {
+            ZoneScopedN( "FiberOuterLoopFiber" );
+
+            for( int i=0; i<10; i++ )
+            {
+                ZoneScopedN( "FiberInnerLoop" );
+                // Run A
+                RunFiber( thisThreadFibA );
+
+                // Pick randomly fiber B or C, depending on its availability to simulate thread migration.
+                const int offset = rand();
+                FakeFiber* fibersToChooseFrom[SharedFiberCount] = { &fiberB, &fiberC };
+                for( size_t j=0; j<SharedFiberCount; j++ )
+                {
+                    FakeFiber* f = fibersToChooseFrom[( j + offset ) % SharedFiberCount];
+                    if( f->running.exchange( true ) == false )
+                    {
+                        TracyFiberEnter( f->name );
+                        RunFiber( *f );
+                        f->running = false;
+                        // Immediately switch back to A
+                        TracyFiberEnter( thisThreadFibA.name );
+                        break;
+                    }
+                }
+
+                // Switch to D
+                TracyFiberEnter( thisThreadFibD.name );
+                RunFiber( thisThreadFibD );
+
+                // Back to main fiber, this is the one that started this scope
+                TracyFiberEnter( thisThreadFibA.name );
+            }
+        }
+        // Leave fiber system back to thread
+        TracyFiberLeave;
+    }
+}
+
+#endif
+
 int main()
 {
 #ifndef _WIN32
@@ -382,7 +576,17 @@ int main()
     auto t21 = std::thread( DeadlockTest1 );
     auto t22 = std::thread( DeadlockTest2 );
     auto t23 = std::thread( ArenaAllocatorTest );
-
+#ifdef TRACY_HAS_LUA
+    auto t24 = std::thread( LuaTest );
+    auto t25 = std::thread( LuaHookTest );
+#endif
+#ifdef TRACY_FIBERS
+    std::thread fibThreads[FiberThreadCount];
+    for( size_t i=0; i<FiberThreadCount; i++ )
+    {
+        fibThreads[i] = std::thread( FiberSimulation );
+    }
+#endif
     int x, y;
     auto image = stbi_load( "image.jpg", &x, &y, nullptr, 4 );
     if(image == nullptr)

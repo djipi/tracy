@@ -85,6 +85,13 @@ public:
         return idx - 1;
     }
 
+    tracy_force_inline uint32_t Raw() const
+    {
+        uint32_t raw = 0;
+        memcpy( &raw, m_idx, 3 );
+        return raw;
+    }
+
     tracy_force_inline bool Active() const
     {
         uint32_t zero = 0;
@@ -196,8 +203,6 @@ struct SourceLocation : public SourceLocationBase
     mutable uint32_t namehash;
 };
 
-enum { SourceLocationSize = sizeof( SourceLocation ) };
-
 
 struct ZoneEvent
 {
@@ -222,7 +227,6 @@ struct ZoneEvent
     uint32_t extra;
 };
 
-enum { ZoneEventSize = sizeof( ZoneEvent ) };
 static_assert( std::is_standard_layout<ZoneEvent>::value, "ZoneEvent is not standard layout" );
 
 
@@ -233,8 +237,6 @@ struct ZoneExtra
     StringIdx name;
     Int24 color;
 };
-
-enum { ZoneExtraSize = sizeof( ZoneExtra ) };
 
 
 // This union exploits the fact that the current implementations of x64 and arm64 do not provide
@@ -251,8 +253,6 @@ union CallstackFrameId
     uint64_t data;
 };
 
-enum { CallstackFrameIdSize = sizeof( CallstackFrameId ) };
-
 static tracy_force_inline bool operator==( const CallstackFrameId& lhs, const CallstackFrameId& rhs ) { return lhs.data == rhs.data; }
 
 
@@ -261,8 +261,6 @@ struct SampleData
     Int48 time;
     Int24 callstack;
 };
-
-enum { SampleDataSize = sizeof( SampleData ) };
 
 struct SampleDataSort { bool operator()( const SampleData& lhs, const SampleData& rhs ) const { return lhs.time.Val() < rhs.time.Val(); }; };
 
@@ -273,8 +271,6 @@ struct SampleDataRange
     uint16_t thread;
     CallstackFrameId ip;
 };
-
-enum { SampleDataRangeSize = sizeof( SampleDataRange ) };
 
 
 struct HwSampleData
@@ -307,8 +303,6 @@ struct HwSampleData
         if( !branchMiss.is_sorted() ) branchMiss.sort();
     }
 };
-
-enum { HwSampleDataSize = sizeof( HwSampleData ) };
 
 
 struct LockEvent
@@ -347,11 +341,7 @@ struct LockEventPtr
     uint64_t waitList;
 };
 
-enum { LockEventSize = sizeof( LockEvent ) };
-enum { LockEventSharedSize = sizeof( LockEventShared ) };
-enum { LockEventPtrSize = sizeof( LockEventPtr ) };
-
-enum { MaxLockThreads = sizeof( LockEventPtr::waitList ) * 8 };
+constexpr size_t MaxLockThreads = sizeof( LockEventPtr::waitList ) * 8;
 static_assert( std::numeric_limits<decltype(LockEventPtr::lockCount)>::max() >= MaxLockThreads, "Not enough space for lock count." );
 
 
@@ -415,7 +405,6 @@ struct GpuEvent
     uint16_t query_id;
 };
 
-enum { GpuEventSize = sizeof( GpuEvent ) };
 static_assert( std::is_standard_layout<GpuEvent>::value, "GpuEvent is not standard layout" );
 
 
@@ -446,7 +435,6 @@ struct MemEvent
     uint64_t _time_thread_free;
 };
 
-enum { MemEventSize = sizeof( MemEvent ) };
 static_assert( std::is_standard_layout<MemEvent>::value, "MemEvent is not standard layout" );
 
 
@@ -471,18 +459,12 @@ struct SymbolData : public CallstackFrameBasic
     Int24 size;
 };
 
-enum { CallstackFrameBasicSize = sizeof( CallstackFrameBasic ) };
-enum { CallstackFrameSize = sizeof( CallstackFrame ) };
-enum { SymbolDataSize = sizeof( SymbolData ) };
-
 
 struct SymbolLocation
 {
     uint64_t addr;
     uint32_t len;
 };
-
-enum { SymbolLocationSize = sizeof( SymbolLocation ) };
 
 
 struct CallstackFrameData
@@ -491,8 +473,6 @@ struct CallstackFrameData
     uint8_t size;
     StringIdx imageName;
 };
-
-enum { CallstackFrameDataSize = sizeof( CallstackFrameData ) };
 
 
 struct MemCallstackFrameTree
@@ -504,9 +484,8 @@ struct MemCallstackFrameTree
     uint32_t count;
     unordered_flat_map<uint64_t, MemCallstackFrameTree> children;
     unordered_flat_set<uint32_t> callstacks;
+    unordered_flat_set<uint64_t> group;
 };
-
-enum { MemCallstackFrameTreeSize = sizeof( MemCallstackFrameTree ) };
 
 
 struct CallstackFrameTree
@@ -516,9 +495,8 @@ struct CallstackFrameTree
     CallstackFrameId frame;
     uint32_t count;
     unordered_flat_map<uint64_t, CallstackFrameTree> children;
+    unordered_flat_set<uint64_t> group;
 };
-
-enum { CallstackFrameTreeSize = sizeof( CallstackFrameTree ) };
 
 
 struct CrashEvent
@@ -529,7 +507,6 @@ struct CrashEvent
     uint32_t callstack = 0;
 };
 
-enum { CrashEventSize = sizeof( CrashEvent ) };
 
 /**
 * Represents a context switch.
@@ -595,6 +572,7 @@ struct ContextSwitchData
     tracy_force_inline int64_t End() const { return _end.Val(); }
     tracy_force_inline void SetEnd( int64_t end ) { assert( end < (int64_t)( 1ull << 47 ) ); _end = end; }
     tracy_force_inline bool IsEndValid() const { return _end.IsNonNegative(); }
+    tracy_force_inline int64_t EndOrStart() const { return _end.IsNonNegative() ? _end.Val() : _start.Val(); }
     tracy_force_inline uint8_t Cpu() const { return _cpu; }
     tracy_force_inline void SetCpu( uint8_t cpu ) { _cpu = cpu; }
     tracy_force_inline uint8_t WakeupCpu() const { return _wakeupcpu; }
@@ -620,8 +598,6 @@ struct ContextSwitchData
     uint16_t _thread; // currently unused ? Could store next thread or prios here.
 };
 
-enum { ContextSwitchDataSize = sizeof( ContextSwitchData ) };
-
 
 struct ContextSwitchCpu
 {
@@ -639,8 +615,6 @@ struct ContextSwitchCpu
     Int48 _end;
 };
 
-enum { ContextSwitchCpuSize = sizeof( ContextSwitchCpu ) };
-
 
 struct ContextSwitchUsage
 {
@@ -657,8 +631,6 @@ struct ContextSwitchUsage
     uint64_t _time_other_own;
 };
 
-enum { ContextSwitchUsageSize = sizeof( ContextSwitchUsage ) };
-
 
 struct MessageData
 {
@@ -671,16 +643,12 @@ struct MessageData
     MessageSeverity severity;
 };
 
-enum { MessageDataSize = sizeof( MessageData ) };
-
 
 struct PlotItem
 {
     Int48 time;
     double val;
 };
-
-enum { PlotItemSize = sizeof( PlotItem ) };
 
 
 struct FrameEvent
@@ -689,8 +657,6 @@ struct FrameEvent
     int64_t end;
     int32_t frameImage;
 };
-
-enum { FrameEventSize = sizeof( FrameEvent ) };
 
 
 struct FrameImage
@@ -702,8 +668,6 @@ struct FrameImage
     uint8_t flip;
 };
 
-enum { FrameImageSize = sizeof( FrameImage ) };
-
 
 struct GhostZone
 {
@@ -712,16 +676,12 @@ struct GhostZone
     int32_t child;
 };
 
-enum { GhostZoneSize = sizeof( GhostZone ) };
-
 
 struct ChildSample
 {
     Int48 time;
     uint64_t addr;
 };
-
-enum { ChildSampleSize = sizeof( ChildSample ) };
 
 #pragma pack( pop )
 
@@ -781,8 +741,6 @@ struct GpuCtxData
     unordered_flat_map<uint16_t, unordered_flat_map<int64_t, double>> notes;
     short_ptr<GpuEvent> query[64*1024];
 };
-
-enum { GpuCtxDataSize = sizeof( GpuCtxData ) };
 
 
 enum class PlotType : uint8_t
@@ -890,8 +848,6 @@ struct CpuThreadData
     uint32_t migrations = 0;
 };
 
-enum { CpuThreadDataSize = sizeof( CpuThreadData ) };
-
 
 struct Parameter
 {
@@ -908,8 +864,6 @@ struct SymbolStats
     unordered_flat_map<uint32_t, uint32_t> parents;
     unordered_flat_map<uint32_t, uint32_t> baseParents;
 };
-
-enum { SymbolStatsSize = sizeof( SymbolStats ) };
 
 
 struct FlameGraphItem

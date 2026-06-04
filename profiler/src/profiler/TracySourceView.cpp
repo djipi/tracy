@@ -4,8 +4,6 @@
 #include <sstream>
 #include <stdio.h>
 
-#include <capstone.h>
-
 #include "imgui.h"
 #include "TracyCharUtil.hpp"
 #include "TracyColor.hpp"
@@ -35,10 +33,16 @@ struct MicroArchUx
 };
 
 static constexpr MicroArchUx s_uArchUx[] = {
+    { "AMD Zen 5", "Ryzen 7 9700X", "ZEN5" },
     { "AMD Zen 4", "Ryzen 5 7600X", "ZEN4" },
     { "AMD Zen 3", "Ryzen 5 5600X", "ZEN3" },
     { "AMD Zen 2", "Ryzen 7 3700X", "ZEN2" },
     { "AMD Zen+", "Ryzen 5 2600", "ZEN+" },
+    { "Arrow Lake", "Core Ultra 7 265K", "ARL-P" },
+    { "Arrow Lake", "Core Ultra 7 265K", "ARL-E" },
+    { "Meteor Lake P", "Core Ultra 7 155H", "MTL-P" },
+    { "Meteor Lake E", "Core Ultra 7 155H", "MTL-E" },
+    { "Emerald Rapids", "Xeon Silver 4514Y", "EMR" },
     { "Alder Lake P", "Core i5-12600K", "ADL-P" },
     { "Alder Lake E", "Core i5-12600K", "ADL-E" },
     { "Rocket Lake", "Core i9-11900", "RKL" },
@@ -74,9 +78,7 @@ static constexpr const char* s_regNameX86[] = {
     "xmm20", "xmm21", "xmm22", "xmm23", "xmm24", "xmm25", "xmm26", "xmm27", "xmm28", "xmm29",
     "xmm30", "xmm31", "k0", "k1", "k2", "k3", "k4", "k5", "k6", "k7"
 };
-static_assert( sizeof( s_regNameX86 ) / sizeof( *s_regNameX86 ) == (size_t)SourceView::RegsX86::NUMBER_OF_ENTRIES, "Invalid x86 register name table" );
-
-static SourceView::RegsX86 s_regMapX86[X86_REG_ENDING];
+static_assert( sizeof( s_regNameX86 ) / sizeof( *s_regNameX86 ) == (size_t)RegsX86::NUMBER_OF_ENTRIES, "Invalid x86 register name table" );
 
 
 static constexpr const char* s_CostName[] = {
@@ -259,7 +261,7 @@ SourceView::SourceView()
     , m_asmBytes( false )
     , m_asmShowSourceLocation( true )
     , m_calcInlineStats( true )
-    , m_hwSamples( true )
+    , m_hwSamples( false )
     , m_hwSamplesRelative( true )
     , m_childCalls( false )
     , m_childCallList( false )
@@ -274,198 +276,6 @@ SourceView::SourceView()
     {
         m_microArchOpMap.emplace( OpsList[i], i );
     }
-
-    memset( s_regMapX86, 0, sizeof( s_regMapX86 ) );
-
-    s_regMapX86[X86_REG_EFLAGS] = RegsX86::flags;
-    s_regMapX86[X86_REG_AH] = RegsX86::rax;
-    s_regMapX86[X86_REG_AL] = RegsX86::rax;
-    s_regMapX86[X86_REG_AX] = RegsX86::rax;
-    s_regMapX86[X86_REG_EAX] = RegsX86::rax;
-    s_regMapX86[X86_REG_RAX] = RegsX86::rax;
-    s_regMapX86[X86_REG_BH] = RegsX86::rbx;
-    s_regMapX86[X86_REG_BL] = RegsX86::rbx;
-    s_regMapX86[X86_REG_BX] = RegsX86::rbx;
-    s_regMapX86[X86_REG_EBX] = RegsX86::rbx;
-    s_regMapX86[X86_REG_RBX] = RegsX86::rbx;
-    s_regMapX86[X86_REG_CH] = RegsX86::rcx;
-    s_regMapX86[X86_REG_CL] = RegsX86::rcx;
-    s_regMapX86[X86_REG_CX] = RegsX86::rcx;
-    s_regMapX86[X86_REG_ECX] = RegsX86::rcx;
-    s_regMapX86[X86_REG_RCX] = RegsX86::rcx;
-    s_regMapX86[X86_REG_DH] = RegsX86::rdx;
-    s_regMapX86[X86_REG_DL] = RegsX86::rdx;
-    s_regMapX86[X86_REG_DX] = RegsX86::rdx;
-    s_regMapX86[X86_REG_EDX] = RegsX86::rdx;
-    s_regMapX86[X86_REG_RDX] = RegsX86::rdx;
-    s_regMapX86[X86_REG_SIL] = RegsX86::rsi;
-    s_regMapX86[X86_REG_SI] = RegsX86::rsi;
-    s_regMapX86[X86_REG_ESI] = RegsX86::rsi;
-    s_regMapX86[X86_REG_RSI] = RegsX86::rsi;
-    s_regMapX86[X86_REG_DIL] = RegsX86::rdi;
-    s_regMapX86[X86_REG_DI] = RegsX86::rdi;
-    s_regMapX86[X86_REG_EDI] = RegsX86::rdi;
-    s_regMapX86[X86_REG_RDI] = RegsX86::rdi;
-    s_regMapX86[X86_REG_BP] = RegsX86::rbp;
-    s_regMapX86[X86_REG_BP] = RegsX86::rbp;
-    s_regMapX86[X86_REG_EBP] = RegsX86::rbp;
-    s_regMapX86[X86_REG_RBP] = RegsX86::rbp;
-    s_regMapX86[X86_REG_SPL] = RegsX86::rsp;
-    s_regMapX86[X86_REG_SP] = RegsX86::rsp;
-    s_regMapX86[X86_REG_ESP] = RegsX86::rsp;
-    s_regMapX86[X86_REG_RSP] = RegsX86::rsp;
-    s_regMapX86[X86_REG_R8B] = RegsX86::r8;
-    s_regMapX86[X86_REG_R8W] = RegsX86::r8;
-    s_regMapX86[X86_REG_R8D] = RegsX86::r8;
-    s_regMapX86[X86_REG_R8] = RegsX86::r8;
-    s_regMapX86[X86_REG_R9B] = RegsX86::r9;
-    s_regMapX86[X86_REG_R9W] = RegsX86::r9;
-    s_regMapX86[X86_REG_R9D] = RegsX86::r9;
-    s_regMapX86[X86_REG_R9] = RegsX86::r9;
-    s_regMapX86[X86_REG_R10B] = RegsX86::r10;
-    s_regMapX86[X86_REG_R10W] = RegsX86::r10;
-    s_regMapX86[X86_REG_R10D] = RegsX86::r10;
-    s_regMapX86[X86_REG_R10] = RegsX86::r10;
-    s_regMapX86[X86_REG_R11B] = RegsX86::r11;
-    s_regMapX86[X86_REG_R11W] = RegsX86::r11;
-    s_regMapX86[X86_REG_R11D] = RegsX86::r11;
-    s_regMapX86[X86_REG_R11] = RegsX86::r11;
-    s_regMapX86[X86_REG_R12B] = RegsX86::r12;
-    s_regMapX86[X86_REG_R12W] = RegsX86::r12;
-    s_regMapX86[X86_REG_R12D] = RegsX86::r12;
-    s_regMapX86[X86_REG_R12] = RegsX86::r12;
-    s_regMapX86[X86_REG_R13B] = RegsX86::r13;
-    s_regMapX86[X86_REG_R13W] = RegsX86::r13;
-    s_regMapX86[X86_REG_R13D] = RegsX86::r13;
-    s_regMapX86[X86_REG_R13] = RegsX86::r13;
-    s_regMapX86[X86_REG_R14B] = RegsX86::r14;
-    s_regMapX86[X86_REG_R14W] = RegsX86::r14;
-    s_regMapX86[X86_REG_R14D] = RegsX86::r14;
-    s_regMapX86[X86_REG_R14] = RegsX86::r14;
-    s_regMapX86[X86_REG_R15B] = RegsX86::r15;
-    s_regMapX86[X86_REG_R15W] = RegsX86::r15;
-    s_regMapX86[X86_REG_R15D] = RegsX86::r15;
-    s_regMapX86[X86_REG_R15] = RegsX86::r15;
-    s_regMapX86[X86_REG_MM0] = RegsX86::mm0;
-    s_regMapX86[X86_REG_MM1] = RegsX86::mm1;
-    s_regMapX86[X86_REG_MM2] = RegsX86::mm2;
-    s_regMapX86[X86_REG_MM3] = RegsX86::mm3;
-    s_regMapX86[X86_REG_MM4] = RegsX86::mm4;
-    s_regMapX86[X86_REG_MM5] = RegsX86::mm5;
-    s_regMapX86[X86_REG_MM6] = RegsX86::mm6;
-    s_regMapX86[X86_REG_MM7] = RegsX86::mm7;
-    s_regMapX86[X86_REG_ST0] = RegsX86::mm0;
-    s_regMapX86[X86_REG_ST1] = RegsX86::mm1;
-    s_regMapX86[X86_REG_ST2] = RegsX86::mm2;
-    s_regMapX86[X86_REG_ST3] = RegsX86::mm3;
-    s_regMapX86[X86_REG_ST4] = RegsX86::mm4;
-    s_regMapX86[X86_REG_ST5] = RegsX86::mm5;
-    s_regMapX86[X86_REG_ST6] = RegsX86::mm6;
-    s_regMapX86[X86_REG_ST7] = RegsX86::mm7;
-    s_regMapX86[X86_REG_XMM0] = RegsX86::xmm0;
-    s_regMapX86[X86_REG_YMM0] = RegsX86::xmm0;
-    s_regMapX86[X86_REG_ZMM0] = RegsX86::xmm0;
-    s_regMapX86[X86_REG_XMM1] = RegsX86::xmm1;
-    s_regMapX86[X86_REG_YMM1] = RegsX86::xmm1;
-    s_regMapX86[X86_REG_ZMM1] = RegsX86::xmm1;
-    s_regMapX86[X86_REG_XMM2] = RegsX86::xmm2;
-    s_regMapX86[X86_REG_YMM2] = RegsX86::xmm2;
-    s_regMapX86[X86_REG_ZMM2] = RegsX86::xmm2;
-    s_regMapX86[X86_REG_XMM3] = RegsX86::xmm3;
-    s_regMapX86[X86_REG_YMM3] = RegsX86::xmm3;
-    s_regMapX86[X86_REG_ZMM3] = RegsX86::xmm3;
-    s_regMapX86[X86_REG_XMM4] = RegsX86::xmm4;
-    s_regMapX86[X86_REG_YMM4] = RegsX86::xmm4;
-    s_regMapX86[X86_REG_ZMM4] = RegsX86::xmm4;
-    s_regMapX86[X86_REG_XMM5] = RegsX86::xmm5;
-    s_regMapX86[X86_REG_YMM5] = RegsX86::xmm5;
-    s_regMapX86[X86_REG_ZMM5] = RegsX86::xmm5;
-    s_regMapX86[X86_REG_XMM6] = RegsX86::xmm6;
-    s_regMapX86[X86_REG_YMM6] = RegsX86::xmm6;
-    s_regMapX86[X86_REG_ZMM6] = RegsX86::xmm6;
-    s_regMapX86[X86_REG_XMM7] = RegsX86::xmm7;
-    s_regMapX86[X86_REG_YMM7] = RegsX86::xmm7;
-    s_regMapX86[X86_REG_ZMM7] = RegsX86::xmm7;
-    s_regMapX86[X86_REG_XMM8] = RegsX86::xmm8;
-    s_regMapX86[X86_REG_YMM8] = RegsX86::xmm8;
-    s_regMapX86[X86_REG_ZMM8] = RegsX86::xmm8;
-    s_regMapX86[X86_REG_XMM9] = RegsX86::xmm9;
-    s_regMapX86[X86_REG_YMM9] = RegsX86::xmm9;
-    s_regMapX86[X86_REG_ZMM9] = RegsX86::xmm9;
-    s_regMapX86[X86_REG_XMM10] = RegsX86::xmm10;
-    s_regMapX86[X86_REG_YMM10] = RegsX86::xmm10;
-    s_regMapX86[X86_REG_ZMM10] = RegsX86::xmm10;
-    s_regMapX86[X86_REG_XMM11] = RegsX86::xmm11;
-    s_regMapX86[X86_REG_YMM11] = RegsX86::xmm11;
-    s_regMapX86[X86_REG_ZMM11] = RegsX86::xmm11;
-    s_regMapX86[X86_REG_XMM12] = RegsX86::xmm12;
-    s_regMapX86[X86_REG_YMM12] = RegsX86::xmm12;
-    s_regMapX86[X86_REG_ZMM12] = RegsX86::xmm12;
-    s_regMapX86[X86_REG_XMM13] = RegsX86::xmm13;
-    s_regMapX86[X86_REG_YMM13] = RegsX86::xmm13;
-    s_regMapX86[X86_REG_ZMM13] = RegsX86::xmm13;
-    s_regMapX86[X86_REG_XMM14] = RegsX86::xmm14;
-    s_regMapX86[X86_REG_YMM14] = RegsX86::xmm14;
-    s_regMapX86[X86_REG_ZMM14] = RegsX86::xmm14;
-    s_regMapX86[X86_REG_XMM15] = RegsX86::xmm15;
-    s_regMapX86[X86_REG_YMM15] = RegsX86::xmm15;
-    s_regMapX86[X86_REG_ZMM15] = RegsX86::xmm15;
-    s_regMapX86[X86_REG_XMM16] = RegsX86::xmm16;
-    s_regMapX86[X86_REG_YMM16] = RegsX86::xmm16;
-    s_regMapX86[X86_REG_ZMM16] = RegsX86::xmm16;
-    s_regMapX86[X86_REG_XMM17] = RegsX86::xmm17;
-    s_regMapX86[X86_REG_YMM17] = RegsX86::xmm17;
-    s_regMapX86[X86_REG_ZMM17] = RegsX86::xmm17;
-    s_regMapX86[X86_REG_XMM18] = RegsX86::xmm18;
-    s_regMapX86[X86_REG_YMM18] = RegsX86::xmm18;
-    s_regMapX86[X86_REG_ZMM18] = RegsX86::xmm18;
-    s_regMapX86[X86_REG_XMM19] = RegsX86::xmm19;
-    s_regMapX86[X86_REG_YMM19] = RegsX86::xmm19;
-    s_regMapX86[X86_REG_ZMM19] = RegsX86::xmm19;
-    s_regMapX86[X86_REG_XMM20] = RegsX86::xmm20;
-    s_regMapX86[X86_REG_YMM20] = RegsX86::xmm20;
-    s_regMapX86[X86_REG_ZMM20] = RegsX86::xmm20;
-    s_regMapX86[X86_REG_XMM21] = RegsX86::xmm21;
-    s_regMapX86[X86_REG_YMM21] = RegsX86::xmm21;
-    s_regMapX86[X86_REG_ZMM21] = RegsX86::xmm21;
-    s_regMapX86[X86_REG_XMM22] = RegsX86::xmm22;
-    s_regMapX86[X86_REG_YMM22] = RegsX86::xmm22;
-    s_regMapX86[X86_REG_ZMM22] = RegsX86::xmm22;
-    s_regMapX86[X86_REG_XMM23] = RegsX86::xmm23;
-    s_regMapX86[X86_REG_YMM23] = RegsX86::xmm23;
-    s_regMapX86[X86_REG_ZMM23] = RegsX86::xmm23;
-    s_regMapX86[X86_REG_XMM24] = RegsX86::xmm24;
-    s_regMapX86[X86_REG_YMM24] = RegsX86::xmm24;
-    s_regMapX86[X86_REG_ZMM24] = RegsX86::xmm24;
-    s_regMapX86[X86_REG_XMM25] = RegsX86::xmm25;
-    s_regMapX86[X86_REG_YMM25] = RegsX86::xmm25;
-    s_regMapX86[X86_REG_ZMM25] = RegsX86::xmm25;
-    s_regMapX86[X86_REG_XMM26] = RegsX86::xmm26;
-    s_regMapX86[X86_REG_YMM26] = RegsX86::xmm26;
-    s_regMapX86[X86_REG_ZMM26] = RegsX86::xmm26;
-    s_regMapX86[X86_REG_XMM27] = RegsX86::xmm27;
-    s_regMapX86[X86_REG_YMM27] = RegsX86::xmm27;
-    s_regMapX86[X86_REG_ZMM27] = RegsX86::xmm27;
-    s_regMapX86[X86_REG_XMM28] = RegsX86::xmm28;
-    s_regMapX86[X86_REG_YMM28] = RegsX86::xmm28;
-    s_regMapX86[X86_REG_ZMM28] = RegsX86::xmm28;
-    s_regMapX86[X86_REG_XMM29] = RegsX86::xmm29;
-    s_regMapX86[X86_REG_YMM29] = RegsX86::xmm29;
-    s_regMapX86[X86_REG_ZMM29] = RegsX86::xmm29;
-    s_regMapX86[X86_REG_XMM30] = RegsX86::xmm30;
-    s_regMapX86[X86_REG_YMM30] = RegsX86::xmm30;
-    s_regMapX86[X86_REG_ZMM30] = RegsX86::xmm30;
-    s_regMapX86[X86_REG_XMM31] = RegsX86::xmm31;
-    s_regMapX86[X86_REG_YMM31] = RegsX86::xmm31;
-    s_regMapX86[X86_REG_ZMM31] = RegsX86::xmm31;
-    s_regMapX86[X86_REG_K0] = RegsX86::k0;
-    s_regMapX86[X86_REG_K1] = RegsX86::k1;
-    s_regMapX86[X86_REG_K2] = RegsX86::k2;
-    s_regMapX86[X86_REG_K3] = RegsX86::k3;
-    s_regMapX86[X86_REG_K4] = RegsX86::k4;
-    s_regMapX86[X86_REG_K5] = RegsX86::k5;
-    s_regMapX86[X86_REG_K6] = RegsX86::k6;
-    s_regMapX86[X86_REG_K7] = RegsX86::k7;
 }
 
 static constexpr uint32_t PackCpuInfo( uint32_t cpuid )
@@ -490,6 +300,7 @@ struct CpuIdMap
 static constexpr CpuIdMap s_cpuIdMap[] = {
     { PackCpuInfo( 0x810F81 ), "ZEN+" },
     { PackCpuInfo( 0x800F82 ), "ZEN+" },
+    // Zen2
     { PackCpuInfo( 0x830F10 ), "ZEN2" },
     { PackCpuInfo( 0x840F70 ), "ZEN2" },
     { PackCpuInfo( 0x860F01 ), "ZEN2" },
@@ -497,60 +308,109 @@ static constexpr CpuIdMap s_cpuIdMap[] = {
     { PackCpuInfo( 0x870F10 ), "ZEN2" },
     { PackCpuInfo( 0x890F00 ), "ZEN2" },
     { PackCpuInfo( 0x890F80 ), "ZEN2" },
+    // Zen3
     { PackCpuInfo( 0xA00F11 ), "ZEN3" },
     { PackCpuInfo( 0xA00F80 ), "ZEN3" },
+    { PackCpuInfo( 0xA00F82 ), "ZEN3" },
     { PackCpuInfo( 0xA20F10 ), "ZEN3" },
     { PackCpuInfo( 0xA20F12 ), "ZEN3" },
     { PackCpuInfo( 0xA30F00 ), "ZEN3" },
+    { PackCpuInfo( 0xA30F01 ), "ZEN3" },
     { PackCpuInfo( 0xA40F00 ), "ZEN3" },
     { PackCpuInfo( 0xA40F41 ), "ZEN3" },
     { PackCpuInfo( 0xA50F00 ), "ZEN3" },
+    // Zen4
     { PackCpuInfo( 0xA60F12 ), "ZEN4" },
+    { PackCpuInfo( 0xA60F13 ), "ZEN4" },
+    { PackCpuInfo( 0xA70F41 ), "ZEN4" },
+    { PackCpuInfo( 0xA70F52 ), "ZEN4" },
+    { PackCpuInfo( 0xA70F80 ), "ZEN4" },
+    { PackCpuInfo( 0xA70FC0 ), "ZEN4" },
+    { PackCpuInfo( 0xA80F01 ), "ZEN4" },
+    { PackCpuInfo( 0xA90F01 ), "ZEN4" },
     { PackCpuInfo( 0xA10F11 ), "ZEN4" },
+    { PackCpuInfo( 0xA10F12 ), "ZEN4" },
+    { PackCpuInfo( 0xA10F81 ), "ZEN4" },
+    // Zen5
+    { PackCpuInfo( 0xB00F20 ), "ZEN5" },
+    { PackCpuInfo( 0xB20F40 ), "ZEN5" },
+    { PackCpuInfo( 0xB30F00 ), "ZEN5" },
+    { PackCpuInfo( 0xB30F80 ), "ZEN5" },
+    { PackCpuInfo( 0xB40F40 ), "ZEN5" },
+    { PackCpuInfo( 0xB40F41 ), "ZEN5" },
+    { PackCpuInfo( 0xB60F00 ), "ZEN5" },
+    { PackCpuInfo( 0xB60F80 ), "ZEN5" },
+    { PackCpuInfo( 0xB70F00 ), "ZEN5" },
+    { PackCpuInfo( 0xBD0F00 ), "ZEN5" },
+    // Arrow Lake
+    { PackCpuInfo( 0x0B0650 ), "ARL-P" },
+    { PackCpuInfo( 0x0C0652 ), "ARL-P" },
+    { PackCpuInfo( 0x0C0662 ), "ARL-P" },
+    // Meteor Lake
+    { PackCpuInfo( 0x0A06A4 ), "MTL-P" },
+    { PackCpuInfo( 0x0A06C1 ), "MTL-P" },
+    // Emerald Rapids
+    { PackCpuInfo( 0x0C06F2 ), "EMR" },
+    // Alder Lake
     { PackCpuInfo( 0x090672 ), "ADL-P" },
     { PackCpuInfo( 0x090675 ), "ADL-P" },
     { PackCpuInfo( 0x0906A2 ), "ADL-P" },
     { PackCpuInfo( 0x0906A3 ), "ADL-P" },
     { PackCpuInfo( 0x0906A4 ), "ADL-P" },
+    // Rocket Lake
     { PackCpuInfo( 0x0A0671 ), "RKL" },
+    // Tiger Lake
     { PackCpuInfo( 0x0806C1 ), "TGL" },
     { PackCpuInfo( 0x0806D1 ), "TGL" },
+    // Ice Lake
     { PackCpuInfo( 0x0706E5 ), "ICL" },
     { PackCpuInfo( 0x0606A6 ), "ICL" },
+    // Cascade Lake
     { PackCpuInfo( 0x050656 ), "CLX" },
     { PackCpuInfo( 0x050657 ), "CLX" },
+    // Cannon Lake
     { PackCpuInfo( 0x060663 ), "CNL" },
+    // Coffee Lake
     { PackCpuInfo( 0x0906EA ), "CFL" },
     { PackCpuInfo( 0x0906EB ), "CFL" },
     { PackCpuInfo( 0x0906EC ), "CFL" },
     { PackCpuInfo( 0x0906ED ), "CFL" },
+    // Kaby Lake
     { PackCpuInfo( 0x0806E9 ), "KBL" },
     { PackCpuInfo( 0x0806EA ), "KBL" },
     { PackCpuInfo( 0x0906E9 ), "KBL" },
+    // Skylake-X
     { PackCpuInfo( 0x050654 ), "SKX" },
+    // Skylake
     { PackCpuInfo( 0x0406E3 ), "SKL" },
     { PackCpuInfo( 0x0506E0 ), "SKL" },
     { PackCpuInfo( 0x0506E3 ), "SKL" },
+    // Broadwell
     { PackCpuInfo( 0x0306D4 ), "BDW" },
     { PackCpuInfo( 0x040671 ), "BDW" },
     { PackCpuInfo( 0x0406F1 ), "BDW" },
+    // Haswell
     { PackCpuInfo( 0x0306C3 ), "HSW" },
     { PackCpuInfo( 0x0306F2 ), "HSW" },
     { PackCpuInfo( 0x040651 ), "HSW" },
+    // Ivy Bridge
     { PackCpuInfo( 0x0306A9 ), "IVB" },
     { PackCpuInfo( 0x0306E3 ), "IVB" },
     { PackCpuInfo( 0x0306E4 ), "IVB" },
+    // Sandy Bridge
     { PackCpuInfo( 0x0206A2 ), "SNB" },
     { PackCpuInfo( 0x0206A7 ), "SNB" },
     { PackCpuInfo( 0x0206D5 ), "SNB" },
     { PackCpuInfo( 0x0206D6 ), "SNB" },
     { PackCpuInfo( 0x0206D7 ), "SNB" },
+    // Westmere
     { PackCpuInfo( 0x0206F2 ), "WSM" },
     { PackCpuInfo( 0x0206C0 ), "WSM" },
     { PackCpuInfo( 0x0206C1 ), "WSM" },
     { PackCpuInfo( 0x0206C2 ), "WSM" },
     { PackCpuInfo( 0x020652 ), "WSM" },
     { PackCpuInfo( 0x020655 ), "WSM" },
+    // Nehalem
     { PackCpuInfo( 0x0206E6 ), "NHM" },
     { PackCpuInfo( 0x0106A1 ), "NHM" },
     { PackCpuInfo( 0x0106A2 ), "NHM" },
@@ -558,20 +418,27 @@ static constexpr CpuIdMap s_cpuIdMap[] = {
     { PackCpuInfo( 0x0106A5 ), "NHM" },
     { PackCpuInfo( 0x0106E4 ), "NHM" },
     { PackCpuInfo( 0x0106E5 ), "NHM" },
+    // Wolfdale
     { PackCpuInfo( 0x010676 ), "WOL" },
     { PackCpuInfo( 0x01067A ), "WOL" },
+    // Conroe
     { PackCpuInfo( 0x0006F2 ), "CON" },
     { PackCpuInfo( 0x0006F4 ), "CON" },
     { PackCpuInfo( 0x0006F6 ), "CON" },
     { PackCpuInfo( 0x0006FB ), "CON" },
     { PackCpuInfo( 0x0006FD ), "CON" },
+    // Bonnell
     { PackCpuInfo( 0x0106C2 ), "BNL" },
     { PackCpuInfo( 0x0106CA ), "BNL" },
+    // Airmont
     { PackCpuInfo( 0x07065A ), "AMT" },
+    // Goldmont
     { PackCpuInfo( 0x0506C9 ), "GLM" },
     { PackCpuInfo( 0x0506F1 ), "GLM" },
+    // Goldmont Plus
     { PackCpuInfo( 0x0706A1 ), "GLP" },
     { PackCpuInfo( 0x0706A8 ), "GLP" },
+    // Tremont
     { PackCpuInfo( 0x0806A1 ), "TRM" },
     { PackCpuInfo( 0x090661 ), "TRM" },
     { PackCpuInfo( 0x0906C0 ), "TRM" },
@@ -618,6 +485,7 @@ void SourceView::OpenSymbol( const char* fileName, int line, uint64_t baseAddr, 
     m_sourceFiles.clear();
     m_selectedAddresses.clear();
     m_selectedAddresses.emplace( symAddr );
+    m_childCallHeight = 0;
 
     ParseSource( fileName, worker, view );
     Disassemble( baseAddr, worker );
@@ -670,386 +538,31 @@ void SourceView::ParseSource( const char* fileName, const Worker& worker, const 
     }
 }
 
-static bool IsJumpConditionalX86( const char* op )
-{
-    static constexpr const char* branchX86[] = {
-        "je", "jne", "jg", "jge", "ja", "jae", "jl", "jle", "jb", "jbe", "jo", "jno", "jz", "jnz", "js", "jns", "jcxz", "jecxz", "jrcxz", "loop", "loope",
-        "loopne", "loopnz", "loopz", "jnle", "jnl", "jnge", "jng", "jnbe", "jnb", "jnae", "jna", "jc", "jnc", "jp", "jpe", "jnp", "jpo", nullptr
-    };
-    auto ptr = branchX86;
-    while( *ptr ) if( strcmp( *ptr++, op ) == 0 ) return true;
-    return false;
-}
-
 bool SourceView::Disassemble( uint64_t symAddr, const Worker& worker )
 {
-    m_asm.clear();
-    m_locMap.clear();
-    m_jumpTable.clear();
-    m_jumpOut.clear();
+    auto data = tracy::Disassemble( symAddr, worker );
+    m_asm = std::move( data.lines );
+    m_locMap = std::move( data.locMap );
+    m_jumpTable = std::move( data.jumpTable );
+    m_jumpOut = std::move( data.jumpOut );
+    m_sourceFiles = std::move( data.sourceFiles );
+    m_maxJumpLevel = data.maxJumpLevel;
+    m_disasmFail = data.disasmFail;
+    m_cpuArch = data.cpuArch;
+    m_codeLen = data.codeLen;
+    m_maxLine = data.maxLine;
+    m_maxMnemonicLen = data.maxMnemonicLen;
+    m_maxOperandLen = data.maxOperandLen;
+    m_maxAsmBytes = data.maxAsmBytes;
+
     m_locationAddress.clear();
-    m_maxJumpLevel = 0;
     m_asmSelected = -1;
     m_asmCountBase = -1;
     m_asmWidth = 0;
-    if( symAddr == 0 ) return false;
-    m_cpuArch = worker.GetCpuArch();
-    if( m_cpuArch == CpuArchUnknown ) return false;
-    uint32_t len;
-    auto code = worker.GetSymbolCode( symAddr, len );
-    if( !code ) return false;
-    m_disasmFail = -1;
-    csh handle;
-    cs_err rval = CS_ERR_ARCH;
-    switch( m_cpuArch )
-    {
-    case CpuArchX86:
-        rval = cs_open( CS_ARCH_X86, CS_MODE_32, &handle );
-        break;
-    case CpuArchX64:
-        rval = cs_open( CS_ARCH_X86, CS_MODE_64, &handle );
-        break;
-    case CpuArchArm32:
-        rval = cs_open( CS_ARCH_ARM, CS_MODE_ARM, &handle );
-        break;
-    case CpuArchArm64:
-        rval = cs_open( CS_ARCH_AARCH64, CS_MODE_ARM, &handle );
-        break;
-    default:
-        assert( false );
-        break;
-    }
-    if( rval != CS_ERR_OK ) return false;
-    cs_option( handle, CS_OPT_DETAIL, CS_OPT_ON );
-    cs_option( handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL );
-    cs_insn* insn;
-    size_t cnt = cs_disasm( handle, (const uint8_t*)code, len, symAddr, 0, &insn );
-    if( cnt > 0 )
-    {
-        if( insn[cnt-1].address - symAddr + insn[cnt-1].size < len ) m_disasmFail = insn[cnt-1].address - symAddr;
-        int bytesMax = 0;
-        int mLenMax = 0;
-        int oLenMax = 0;
-        m_asm.reserve( cnt );
-        for( size_t i=0; i<cnt; i++ )
-        {
-            const auto& op = insn[i];
-            const auto& detail = *op.detail;
-            bool hasJump = false;
-            bool jumpConditional = false;
-            OpType opType = OpType::None;
-            for( auto j=0; j<detail.groups_count; j++ )
-            {
-                if( detail.groups[j] == CS_GRP_JUMP || detail.groups[j] == CS_GRP_CALL || detail.groups[j] == CS_GRP_RET )
-                {
-                    hasJump = true;
-                    break;
-                }
-            }
-            for( auto j=0; j<detail.groups_count; j++ )
-            {
-                if( detail.groups[j] == CS_GRP_JUMP && opType < OpType::Jump ) opType = OpType::Jump;
-                else if( detail.groups[j] == CS_GRP_BRANCH_RELATIVE && opType < OpType::Branch ) opType = OpType::Branch;
-                else if( detail.groups[j] == CS_GRP_CALL && opType < OpType::Call ) opType = OpType::Call;
-                else if( detail.groups[j] == CS_GRP_RET && opType < OpType::Ret ) opType = OpType::Ret;
-                else if( detail.groups[j] == CS_GRP_PRIVILEGE && opType < OpType::Privileged )
-                {
-                    opType = OpType::Privileged;
-                    break;
-                }
-            }
-            uint64_t jumpAddr = 0;
-            if( hasJump )
-            {
-                switch( m_cpuArch )
-                {
-                case CpuArchX86:
-                case CpuArchX64:
-                    if( detail.x86.op_count == 1 && detail.x86.operands[0].type == X86_OP_IMM )
-                    {
-                        jumpAddr = (uint64_t)detail.x86.operands[0].imm;
-                    }
-                    jumpConditional = IsJumpConditionalX86( op.mnemonic );
-                    break;
-                case CpuArchArm32:
-                    if( detail.arm.op_count == 1 && detail.arm.operands[0].type == ARM_OP_IMM )
-                    {
-                        jumpAddr = (uint64_t)detail.arm.operands[0].imm;
-                    }
-                    break;
-                case CpuArchArm64:
-                    if( detail.aarch64.op_count == 1 && detail.aarch64.operands[0].type == AARCH64_OP_IMM )
-                    {
-                        jumpAddr = (uint64_t)detail.aarch64.operands[0].imm;
-                    }
-                    break;
-                default:
-                    assert( false );
-                    break;
-                }
-                if( jumpAddr >= symAddr && jumpAddr < symAddr + len )
-                {
-                    auto fit = std::lower_bound( insn, insn+cnt, jumpAddr, []( const auto& l, const auto& r ) { return l.address < r; } );
-                    if( fit != insn+cnt && fit->address == jumpAddr )
-                    {
-                        const auto min = std::min( jumpAddr, op.address );
-                        const auto max = std::max( jumpAddr, op.address );
-                        auto it = m_jumpTable.find( jumpAddr );
-                        if( it == m_jumpTable.end() )
-                        {
-                            m_jumpTable.emplace( jumpAddr, JumpData { min, max, 0, { op.address } } );
-                        }
-                        else
-                        {
-                            if( it->second.min > min ) it->second.min = min;
-                            else if( it->second.max < max ) it->second.max = max;
-                            it->second.source.emplace_back( op.address );
-                        }
-                    }
-                    else
-                    {
-                        jumpAddr = 0;
-                    }
-                }
-                else
-                {
-                    m_jumpOut.emplace( op.address );
-                }
-            }
-            std::vector<AsmOpParams> params;
-            switch( m_cpuArch )
-            {
-            case CpuArchX86:
-            case CpuArchX64:
-                for( uint8_t i=0; i<detail.x86.op_count; i++ )
-                {
-                    uint8_t type = 0;
-                    switch( detail.x86.operands[i].type )
-                    {
-                    case X86_OP_IMM:
-                        type = 0;
-                        break;
-                    case X86_OP_REG:
-                        type = 1;
-                        break;
-                    case X86_OP_MEM:
-                        type = 2;
-                        break;
-                    default:
-                        assert( false );
-                        break;
-                    }
-                    params.emplace_back( AsmOpParams { type, uint16_t( detail.x86.operands[i].size * 8 ) } );
-                }
-                break;
-            case CpuArchArm32:
-                for( uint8_t i=0; i<detail.arm.op_count; i++ )
-                {
-                    uint8_t type = 0;
-                    switch( detail.arm.operands[i].type )
-                    {
-                    case ARM_OP_IMM:
-                        type = 0;
-                        break;
-                    case ARM_OP_REG:
-                        type = 1;
-                        break;
-                    case ARM_OP_MEM:
-                        type = 2;
-                        break;
-                    default:
-                        type = 255;
-                        break;
-                    }
-                    params.emplace_back( AsmOpParams { type, 0 } );
-                }
-                break;
-            case CpuArchArm64:
-                for( uint8_t i=0; i<detail.aarch64.op_count; i++ )
-                {
-                    uint8_t type = 0;
-                    switch( detail.aarch64.operands[i].type )
-                    {
-                    case AARCH64_OP_IMM:
-                        type = 0;
-                        break;
-                    case AARCH64_OP_REG:
-                        type = 1;
-                        break;
-                    case AARCH64_OP_MEM:
-                        type = 2;
-                        break;
-                    default:
-                        type = 255;
-                        break;
-                    }
-                    params.emplace_back( AsmOpParams { type, 0 } );
-                }
-                break;
-            default:
-                assert( false );
-                break;
-            }
-            LeaData leaData = LeaData::none;
-            if( ( m_cpuArch == CpuArchX64 || m_cpuArch == CpuArchX86 ) && op.id == X86_INS_LEA )
-            {
-                assert( op.detail->x86.op_count == 2 );
-                assert( op.detail->x86.operands[1].type == X86_OP_MEM );
-                auto& mem = op.detail->x86.operands[1].mem;
-                if( mem.base == X86_REG_INVALID )
-                {
-                    if( mem.index == X86_REG_INVALID )
-                    {
-                        leaData = LeaData::d;
-                    }
-                    else
-                    {
-                        leaData = mem.disp == 0 ? LeaData::i : LeaData::id;
-                    }
-                }
-                else if( mem.base == X86_REG_RIP )
-                {
-                    leaData = mem.disp == 0 ? LeaData::r : LeaData::rd;
-                }
-                else
-                {
-                    if( mem.index == X86_REG_INVALID )
-                    {
-                        leaData = mem.disp == 0 ? LeaData::b : LeaData::bd;
-                    }
-                    else
-                    {
-                        leaData = mem.disp == 0 ? LeaData::bi : LeaData::bid;
-                    }
-                }
-            }
-            m_asm.emplace_back( AsmLine { op.address, jumpAddr, op.mnemonic, op.op_str, (uint8_t)op.size, leaData, opType, jumpConditional, std::move( params ) } );
-            const auto& operands = m_asm.back().operands;
-            m_asm.back().opTokens = m_tokenizer.TokenizeAsm( operands.c_str(), operands.c_str() + operands.size() );
 
-#if CS_API_MAJOR >= 4
-            auto& entry = m_asm.back();
-            cs_regs read, write;
-            uint8_t rcnt, wcnt;
-            cs_regs_access( handle, &op, read, &rcnt, write, &wcnt );
-            int idx;
-            switch( m_cpuArch )
-            {
-            case CpuArchX86:
-            case CpuArchX64:
-                assert( rcnt < sizeof( entry.readX86 ) );
-                assert( wcnt < sizeof( entry.writeX86 ) );
-                idx = 0;
-                for( int i=0; i<rcnt; i++ )
-                {
-                    if( s_regMapX86[read[i]] != RegsX86::invalid ) entry.readX86[idx++] = s_regMapX86[read[i]];
-                    entry.readX86[idx] = RegsX86::invalid;
-                }
-                idx = 0;
-                for( int i=0; i<wcnt; i++ )
-                {
-                    if( s_regMapX86[write[i]] != RegsX86::invalid ) entry.writeX86[idx++] = s_regMapX86[write[i]];
-                    entry.writeX86[idx] = RegsX86::invalid;
-                }
-                break;
-            default:
-                break;
-            }
-#endif
-
-            const auto mLen = (int)strlen( op.mnemonic );
-            if( mLen > mLenMax ) mLenMax = mLen;
-            const auto oLen = (int)strlen( op.op_str );
-            if( oLen > oLenMax ) oLenMax = oLen;
-            if( op.size > bytesMax ) bytesMax = op.size;
-
-            uint32_t mLineMax = 0;
-            uint32_t srcline;
-            const auto srcidx = worker.GetLocationForAddress( op.address, srcline );
-            if( srcline != 0 )
-            {
-                if( srcline > mLineMax ) mLineMax = srcline;
-                const auto idx = srcidx.Idx();
-                auto sit = m_sourceFiles.find( idx );
-                if( sit == m_sourceFiles.end() ) m_sourceFiles.emplace( idx, srcline );
-            }
-            char tmp[16];
-            sprintf( tmp, "%" PRIu32, mLineMax );
-            m_maxLine = strlen( tmp ) + 1;
-        }
-        cs_free( insn, cnt );
-        m_maxMnemonicLen = mLenMax + 1;
-        m_maxOperandLen = oLenMax + 1;
-        m_maxAsmBytes = bytesMax;
-        if( !m_jumpTable.empty() )
-        {
-            struct JumpRange
-            {
-                uint64_t target;
-                uint64_t len;
-            };
-            std::vector<JumpRange> jumpRange;
-            jumpRange.reserve( m_jumpTable.size() );
-            for( auto& v : m_jumpTable )
-            {
-                pdqsort_branchless( v.second.source.begin(), v.second.source.end() );
-                jumpRange.emplace_back( JumpRange { v.first, v.second.max - v.second.min } );
-            }
-            pdqsort_branchless( jumpRange.begin(), jumpRange.end(), []( const auto& l, const auto& r ) { return l.len < r.len; } );
-            std::vector<std::vector<std::pair<uint64_t, uint64_t>>> levelRanges;
-            for( auto& v : jumpRange )
-            {
-                auto it = m_jumpTable.find( v.target );
-                assert( it != m_jumpTable.end() );
-                size_t level = 0;
-                for(;;)
-                {
-                    assert( levelRanges.size() >= level );
-                    if( levelRanges.size() == level )
-                    {
-                        it->second.level = level;
-                        levelRanges.push_back( { { it->second.min, it->second.max } } );
-                        break;
-                    }
-                    else
-                    {
-                        bool validFit = true;
-                        auto& lr = levelRanges[level];
-                        for( auto& range : lr )
-                        {
-                            assert( !( it->second.min >= range.first && it->second.max <= range.second ) );
-                            if( it->second.min <= range.second && it->second.max >= range.first )
-                            {
-                                validFit = false;
-                                break;
-                            }
-                        }
-                        if( validFit )
-                        {
-                            it->second.level = level;
-                            lr.emplace_back( it->second.min, it->second.max );
-                            break;
-                        }
-                        level++;
-                    }
-                }
-                if( level > m_maxJumpLevel ) m_maxJumpLevel = level;
-            }
-
-            uint32_t locNum = 0;
-            for( auto& v : m_asm )
-            {
-                if( m_jumpTable.find( v.addr ) != m_jumpTable.end() )
-                {
-                    m_locMap.emplace( v.addr, locNum++ );
-                }
-            }
-        }
-    }
-    cs_close( &handle );
-    m_codeLen = len;
     ResetAsm();
-    return true;
+
+    return !m_asm.empty();
 }
 
 void SourceView::Render( Worker& worker, View& view )
@@ -1066,6 +579,19 @@ void SourceView::Render( Worker& worker, View& view )
             std::ostringstream stream;
             stream.write( m_source.data(), m_source.data_size() );
             ImGui::SetClipboardText( stream.str().c_str() );
+        }
+        if( s_config.llm )
+        {
+            ImGui::SameLine();
+            if( ImGui::SmallButton( ICON_FA_ROBOT ) )
+            {
+                nlohmann::json json = {
+                    { "type", "source", },
+                    { "file", m_source.filename(), },
+                    { "code", std::string( m_source.data(), m_source.data_size() ) }
+                };
+                view.AddLlmAttachment( json );
+            }
         }
         ImGui::PopFont();
         ImGui::SameLine();
@@ -1258,8 +784,11 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
         TextDisabledUnformatted( tmp );
     }
 
-    if( ImGui::IsKeyDown( ImGuiKey_Z ) ) m_childCalls = !m_childCalls;
-    if( ImGui::IsKeyDown( ImGuiKey_X ) ) m_propagateInlines = !m_propagateInlines;
+    if( ImGui::IsWindowFocused( ImGuiFocusedFlags_ChildWindows ) )
+    {
+        if( ImGui::IsKeyDown( ImGuiKey_Z ) ) m_childCalls = !m_childCalls;
+        if( ImGui::IsKeyDown( ImGuiKey_X ) ) m_propagateInlines = !m_propagateInlines;
+    }
 
     const bool limitView = view.m_statRange.active;
     if( inlineList )
@@ -1346,7 +875,7 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
                     widthSet = true;
                     const auto w = ImGui::GetWindowWidth();
                     const auto c0 = ImGui::CalcTextSize( "12345678901234567890" ).x;
-                    const auto c2 = ImGui::CalcTextSize( "0xeeeeeeeeeeeeee" ).x;
+                    const auto c2 = ImGui::CalcTextSize( "0x0123456789abcdef" ).x;
                     ImGui::SetColumnWidth( 0, c0 );
                     ImGui::SetColumnWidth( 1, w - c0 - c2 );
                     ImGui::SetColumnWidth( 2, c2 );
@@ -1389,7 +918,14 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
                 const auto normalized = shortenName != ShortenName::Never ? ShortenZoneName( ShortenName::OnlyNormalize, symName ) : symName;
                 const auto selected = ImGui::Selectable( "", v.first == m_symAddr, ImGuiSelectableFlags_SpanAllColumns );
                 ImGui::SameLine( 0, 0 );
-                ImGui::TextUnformatted( normalized );
+                if( worker.IsFrameExternal( isym->file, isym->imageName ) )
+                {
+                    TextDisabledUnformatted( normalized );
+                }
+                else
+                {
+                    ImGui::TextUnformatted( normalized );
+                }
                 TooltipNormalizedName( symName, normalized );
                 if( selected )
                 {
@@ -1450,23 +986,23 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
     {
         if( m_calcInlineStats )
         {
-            GatherIpStats( m_symAddr, as, worker, limitView, view );
-            GatherAdditionalIpStats( m_symAddr, as, worker, limitView, view );
+            GatherIpStats( m_symAddr, as, worker, limitView, view, m_source.filename(), m_propagateInlines );
+            GatherAdditionalIpStats( m_symAddr, as, worker, limitView, view, m_source.filename(), m_propagateInlines );
         }
         else
         {
-            GatherIpStats( m_baseAddr, as, worker, limitView, view );
+            GatherIpStats( m_baseAddr, as, worker, limitView, view, m_source.filename(), m_propagateInlines );
             auto iptr = worker.GetInlineSymbolList( m_baseAddr, m_codeLen );
             if( iptr )
             {
                 const auto symEnd = m_baseAddr + m_codeLen;
                 while( *iptr < symEnd )
                 {
-                    GatherIpStats( *iptr, as, worker, limitView, view );
+                    GatherIpStats( *iptr, as, worker, limitView, view, m_source.filename(), m_propagateInlines );
                     iptr++;
                 }
             }
-            GatherAdditionalIpStats( m_baseAddr, as, worker, limitView, view );
+            GatherAdditionalIpStats( m_baseAddr, as, worker, limitView, view, m_source.filename(), m_propagateInlines );
         }
     }
     else
@@ -1491,7 +1027,9 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
         {
             SmallCheckbox( ICON_FA_HAMMER " HW", &m_hwSamples );
             ImGui::SameLine();
+            if( !m_hwSamples ) ImGui::BeginDisabled();
             SmallCheckbox( ICON_FA_CAR_BURST " Impact", &m_hwSamplesRelative );
+            if( !m_hwSamples ) ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::Spacing();
             ImGui::SameLine();
@@ -1531,19 +1069,17 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
         }
         if( m_cost == CostType::SampleCount )
         {
-            if( !samplesReady )
+            if( !samplesReady || as.ipTotalAsm.ext == 0 )
             {
                 ImGui::PushItemFlag( ImGuiItemFlags_Disabled, true );
                 ImGui::PushStyleVar( ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f );
                 m_childCalls = false;
                 m_childCallList = false;
-                m_propagateInlines = false;
             }
+            if( !samplesReady ) m_propagateInlines = false;
             SmallCheckbox( ICON_FA_RIGHT_FROM_BRACKET " Child calls", &m_childCalls );
             if( !samplesReady )
             {
-                ImGui::PopStyleVar();
-                ImGui::PopItemFlag();
                 TooltipIfHovered( "Please wait, processing data…" );
             }
             else
@@ -1552,6 +1088,11 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
             }
             ImGui::SameLine();
             if( ImGui::SmallButton( m_childCallList ? " " ICON_FA_CARET_UP " " : " " ICON_FA_CARET_DOWN " " ) ) m_childCallList = !m_childCallList;
+            if( !samplesReady || as.ipTotalAsm.ext == 0 )
+            {
+                ImGui::PopStyleVar();
+                ImGui::PopItemFlag();
+            }
             ImGui::SameLine();
             ImGui::Spacing();
             ImGui::SameLine();
@@ -1565,8 +1106,11 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
             }
             if( as.ipTotalAsm.ext )
             {
+                char buf[32];
+                auto end = PrintFloat( buf, buf+32, as.ipTotalAsm.ext * 100.f / ( as.ipTotalAsm.local + as.ipTotalAsm.ext ), 2 );
+                *end = '\0';
                 ImGui::SameLine();
-                ImGui::TextDisabled( "(%c%s)", m_childCalls ? '-' : '+', TimeToString( as.ipTotalAsm.ext * worker.GetSamplingPeriod() ) );
+                ImGui::TextDisabled( "(%c%s / %s%%)", m_childCalls ? '-' : '+', TimeToString( as.ipTotalAsm.ext * worker.GetSamplingPeriod() ), buf );
                 TooltipIfHovered( "Child call samples" );
             }
             ImGui::SameLine();
@@ -1583,11 +1127,11 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
             if( as.ipTotalAsm.ext )
             {
                 ImGui::SameLine();
-                ImGui::Text( "(%c%s)", m_childCalls ? '-' : '+', RealToString( as.ipTotalAsm.ext ) );
+                ImGui::TextDisabled( "(%c%s)", m_childCalls ? '-' : '+', RealToString( as.ipTotalAsm.ext ) );
                 TooltipIfHovered( "Child call samples" );
             }
         }
-        else
+        else if( m_cost != CostType::SampleCount )
         {
             TextFocused( "Events:", RealToString( as.ipTotalAsm.local ) );
             m_childCallList = false;
@@ -1647,18 +1191,30 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
         }
         if( !map.empty() )
         {
-            TextDisabledUnformatted( "Child call distribution" );
-            if( ImGui::BeginChild( "ccd", ImVec2( 0, ImGui::GetTextLineHeight() * std::min<size_t>( 4, map.size() ) + ImGui::GetStyle().WindowPadding.y ) ) )
+            if( m_childCallHeight == 0 ) m_childCallHeight = ImGui::GetTextLineHeightWithSpacing() * std::min<float>( 5.5f, map.size() + 1 );
+            ImGui::BeginChild( "##ccd", ImVec2( 0, m_childCallHeight ) );
+            std::vector<ChildStat> vec;
+            vec.reserve( map.size() );
+            for( auto& v : map ) vec.emplace_back( ChildStat { v.first, v.second } );
+            pdqsort_branchless( vec.begin(), vec.end(), []( const auto& lhs, const auto& rhs ) { return lhs.count > rhs.count; } );
+            if( ImGui::BeginTable( "##ccd", 7, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY ) )
             {
-                std::vector<ChildStat> vec;
-                vec.reserve( map.size() );
-                for( auto& v : map ) vec.emplace_back( ChildStat { v.first, v.second } );
-                pdqsort_branchless( vec.begin(), vec.end(), []( const auto& lhs, const auto& rhs ) { return lhs.count > rhs.count; } );
+                ImGui::TableSetupScrollFreeze( 0, 1 );
+                ImGui::TableSetupColumn( "#", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_NoReorder );
+                ImGui::TableSetupColumn( "Child call", ImGuiTableColumnFlags_NoHide );
+                ImGui::TableSetupColumn( "Time", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize );
+                ImGui::TableSetupColumn( "% Calls", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize );
+                ImGui::TableSetupColumn( "% Total", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize );
+                ImGui::TableSetupColumn( "Source file", ImGuiTableColumnFlags_NoSort );
+                ImGui::TableSetupColumn( "Image", ImGuiTableColumnFlags_NoSort );
+                ImGui::TableHeadersRow();
                 int idx = 1;
                 for( auto& v : vec )
                 {
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
                     ImGui::TextDisabled( "%i.", idx++ );
-                    ImGui::SameLine();
+                    ImGui::TableNextColumn();
                     auto sd = worker.GetSymbolData( v.addr );
                     const auto symName = sd ? worker.GetString( sd->name ) : "[unknown]";
                     if( v.addr >> 63 == 0 )
@@ -1678,23 +1234,30 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
                     {
                         TextColoredUnformatted( 0xFF8888FF, symName );
                     }
-                    ImGui::SameLine();
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted( TimeToString( v.count * worker.GetSamplingPeriod() ) );
+                    ImGui::TableNextColumn();
                     char tmp[16];
                     auto end = PrintFloat( tmp, tmp+16, 100.f * v.count / as.ipTotalAsm.ext, 2 );
                     *end = '\0';
-                    ImGui::TextDisabled( "%s (%s%%)", TimeToString( v.count * worker.GetSamplingPeriod() ), tmp );
+                    ImGui::TextDisabled( "%s%%", tmp );
                     if( ImGui::IsItemHovered() )
                     {
                         ImGui::BeginTooltip();
                         ImGui::Text( "%s samples", RealToString( v.count ) );
                         ImGui::EndTooltip();
                     }
+                    ImGui::TableNextColumn();
+                    {
+                        char tmp2[16];
+                        auto end2 = PrintFloat( tmp2, tmp2+16, 100.f * v.count / ( as.ipTotalAsm.local + as.ipTotalAsm.ext ), 2 );
+                        *end2 = '\0';
+                        ImGui::TextDisabled( "%s%%", tmp2 );
+                    }
+                    ImGui::TableNextColumn();
                     if( sd && sd->line != 0 )
                     {
                         const auto fileName = worker.GetString( sd->file );
-                        ImGui::SameLine();
-                        ImGui::Spacing();
-                        ImGui::SameLine();
                         ImGui::TextDisabled( "%s:%i", fileName, sd->line );
                         if( ImGui::IsItemHovered() && SourceFileValid( fileName, worker.GetCaptureTime(), view, worker ) )
                         {
@@ -1713,9 +1276,25 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
                             }
                         }
                     }
+                    ImGui::TableNextColumn();
+                    if( sd )
+                    {
+                        const auto imageName = worker.GetString( sd->imageName );
+                        const auto cw = ImGui::GetContentRegionAvail().x;
+                        const auto tw = ImGui::CalcTextSize( imageName ).x;
+                        TextDisabledUnformatted( imageName );
+                        if( tw > cw ) TooltipIfHovered( imageName );
+                    }
                 }
+                ImGui::EndTable();
             }
             ImGui::EndChild();
+            if( map.size() >= 4 )
+            {
+                const auto minSize = ImGui::GetTextLineHeightWithSpacing() * 3.5f;
+                const auto maxSize = ImGui::GetTextLineHeightWithSpacing() * ( map.size() + 1 );
+                DragHeightSplitter( "##childCallHeight", m_childCallHeight, minSize, std::clamp( ImGui::GetContentRegionAvail().y - 100 * GetScale(), minSize, maxSize ), 4.f * GetScale() );
+            }
             ImGui::Separator();
         }
     }
@@ -1741,8 +1320,11 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
         break;
     }
 
-    if( ImGui::IsKeyDown( ImGuiKey_Z ) ) m_childCalls = !m_childCalls;
-    if( ImGui::IsKeyDown( ImGuiKey_X ) ) m_propagateInlines = !m_propagateInlines;
+    if( ImGui::IsWindowFocused( ImGuiFocusedFlags_ChildWindows ) )
+    {
+        if( ImGui::IsKeyDown( ImGuiKey_Z ) ) m_childCalls = !m_childCalls;
+        if( ImGui::IsKeyDown( ImGuiKey_X ) ) m_propagateInlines = !m_propagateInlines;
+    }
 
     if( jumpOut != 0 )
     {
@@ -1852,7 +1434,7 @@ static uint32_t GetGoodnessColor( float inRatio )
     return GoodnessColor[ratio];
 }
 
-void SourceView::RenderSymbolSourceView( const AddrStatData& as, Worker& worker, const View& view, bool hasInlines )
+void SourceView::RenderSymbolSourceView( const AddrStatData& as, Worker& worker, View& view, bool hasInlines )
 {
     const auto scale = GetScale();
     if( hasInlines && !m_calcInlineStats && ( ( as.ipTotalAsm.local + as.ipTotalAsm.ext ) > 0 || ( view.m_statRange.active && worker.GetSamplesForSymbol( m_baseAddr ) ) ) )
@@ -1916,6 +1498,41 @@ void SourceView::RenderSymbolSourceView( const AddrStatData& as, Worker& worker,
                 ImGui::EndTooltip();
             }
         }
+        if( s_config.llm )
+        {
+            ImGui::SameLine();
+            if( ImGui::SmallButton( ICON_FA_ROBOT "##src" ) )
+            {
+                nlohmann::json json = {
+                    { "type", "source", },
+                    { "file", m_source.filename() },
+                    { "hint", "Each line starts with a line number, then optional ';' and the execution cost, then ':', then the actual line content." }
+                };
+
+                std::string code;
+                auto& lines = m_source.get();
+
+                int idx = 1;
+                for( auto& line : lines )
+                {
+                    code += std::to_string( idx );
+
+                    auto it = as.ipCountSrc.find( idx );
+                    if( it != as.ipCountSrc.end() )
+                    {
+                        char buf[32];
+                        snprintf( buf, sizeof(buf), "%.4f%%", 100.f * it->second.local / as.ipTotalSrc.local );
+                        code += ";" + std::string( buf );
+                    }
+
+                    code += ":" + std::string( line.begin, line.end ) + "\n";
+                    idx++;
+                }
+
+                json["code"] = std::move( code );
+                view.AddLlmAttachment( json );
+            }
+        }
         ImGui::SameLine();
         TextDisabledUnformatted( ICON_FA_FILE " File:" );
         ImGui::SameLine();
@@ -1959,7 +1576,7 @@ void SourceView::RenderSymbolSourceView( const AddrStatData& as, Worker& worker,
                 {
                     uint32_t srcline;
                     const auto srcidx = worker.GetLocationForAddress( v.addr, srcline );
-                    if( srcline != 0 )
+                    if( srcidx.Active() )
                     {
                         AddrStat cnt = {};
                         auto ait = as.ipCountAsm.find( v.addr );
@@ -2186,7 +1803,7 @@ void SourceView::RenderSymbolSourceView( const AddrStatData& as, Worker& worker,
         for( auto& v : as.ipCountSrc ) ipData.emplace_back( v.first, v.second );
         for( uint32_t lineNum = 1; lineNum <= lines.size(); lineNum++ )
         {
-            if( as.ipCountSrc.find( lineNum ) == as.ipCountSrc.end() )
+            if( !as.ipCountSrc.contains( lineNum ) )
             {
                 auto addresses = GetAddressesForLocation( m_source.idx(), lineNum, worker );
                 if( addresses )
@@ -2204,30 +1821,43 @@ void SourceView::RenderSymbolSourceView( const AddrStatData& as, Worker& worker,
         }
         pdqsort_branchless( ipData.begin(), ipData.end(), []( const auto& l, const auto& r ) { return l.first < r.first; } );
 
-        const auto step = uint32_t( lines.size() * 2 / rect.GetHeight() );
-        const auto x14 = round( rect.Min.x + rect.GetWidth() * 0.4f );
-        const auto x34 = round( rect.Min.x + rect.GetWidth() * 0.6f );
-
-        auto it = ipData.begin();
-        while( it != ipData.end() )
+        const auto bucketHeight = std::max( 1, int( round( 3 * scale ) ) );
+        const auto bucketNum = std::max( 1, int( ceil( rect.GetHeight() / bucketHeight ) ) );
+        std::vector<int64_t> buckets( bucketNum, -1 );
+        for( auto& v : ipData )
         {
-            const auto firstLine = it->first;
-            AddrStat ipSum = {};
-            while( it != ipData.end() && it->first <= firstLine + step )
+            const auto bucketStart = int( float( v.first - 1 ) / lines.size() * bucketNum );
+            auto bucketEnd = int( float( v.first ) / lines.size() * bucketNum );
+            if( bucketEnd == bucketStart ) bucketEnd++;
+            bucketEnd = std::min( bucketEnd, bucketNum - 1 );
+            for( auto idx = bucketStart; idx<bucketEnd; idx++ )
             {
-                ipSum += it->second;
-                ++it;
+                if( m_childCalls )
+                {
+                    buckets[idx] = std::max( buckets[idx], int64_t( v.second.local + v.second.ext ) );
+                }
+                else
+                {
+                    buckets[idx] = std::max( buckets[idx], int64_t( v.second.local ) );
+                }
             }
-            const auto ly = round( rect.Min.y + float( firstLine ) / lines.size() * rect.GetHeight() );
-            if( m_childCalls )
+        }
+
+        const auto gs = 4.f * scale;
+        const auto x40 = round( rect.Min.x + rect.GetWidth() * 0.4f );
+        const auto x60 = round( rect.Min.x + rect.GetWidth() * 0.6f );
+        for( size_t i=0; i<buckets.size(); i++ )
+        {
+            if( buckets[i] < 0 ) continue;
+            const auto y0 = round( rect.Min.y + float( i ) / bucketNum * rect.GetHeight() );
+            const auto y1 = round( rect.Min.y + float( i + 1 ) / bucketNum * rect.GetHeight() );
+            const auto color = buckets[i] == 0 ? 0x22FFFFFF : ( GetHotnessColor( buckets[i], m_childCalls ? (as.ipMaxSrc.local + as.ipMaxSrc.ext) : as.ipMaxSrc.local ) );
+            const auto glow = GetHotnessGlow( buckets[i], m_childCalls ? (as.ipMaxSrc.local + as.ipMaxSrc.ext) : as.ipMaxSrc.local );
+            draw->AddRectFilled( ImVec2( x40, y0 ), ImVec2( x60, y1 ), color );
+            if( glow )
             {
-                const auto color = ( ipSum.local + ipSum.ext == 0 ) ? 0x22FFFFFF : GetHotnessColor( ipSum.local + ipSum.ext, as.ipMaxSrc.local + as.ipMaxSrc.ext );
-                draw->AddRectFilled( ImVec2( x14, ly ), ImVec2( x34, ly+3*scale ), color );
-            }
-            else
-            {
-                const auto color = ipSum.local == 0 ? 0x22FFFFFF : GetHotnessColor( ipSum.local, as.ipMaxSrc.local );
-                draw->AddRectFilled( ImVec2( x14, ly ), ImVec2( x34, ly+3*scale ), color );
+                draw->AddRectFilledMultiColor( ImVec2( x60, y0 ), ImVec2( x60 + gs, y1 ), glow, 0, 0, glow );
+                draw->AddRectFilledMultiColor( ImVec2( x40 - gs, y0 ), ImVec2( x40, y1 ), 0, glow, glow, 0 );
             }
         }
 
@@ -2384,7 +2014,7 @@ static int PrintHexBytes( const uint8_t* bytes, size_t len, CpuArchitecture arch
     }
 }
 
-std::tuple<size_t, size_t> SourceView::GetJumpRange( const JumpData& jump )
+std::tuple<size_t, size_t> SourceView::GetJumpRange( const AsmJumpData& jump )
 {
     size_t minIdx = 0, maxIdx = 0;
     size_t i;
@@ -2407,6 +2037,75 @@ std::tuple<size_t, size_t> SourceView::GetJumpRange( const JumpData& jump )
     }
     assert( i != m_asm.size() );
     return std::make_tuple( minIdx, maxIdx );
+}
+
+void SourceView::AttachRangeToLlm( size_t start, size_t stop, Worker& worker, View& view )
+{
+    auto sym = worker.GetSymbolData( m_symAddr );
+    assert( sym );
+    const char* symName;
+    if( sym->isInline )
+    {
+        auto parent = worker.GetSymbolData( m_baseAddr );
+        if( parent )
+        {
+            symName = worker.GetString( parent->name );
+        }
+        else
+        {
+            char tmp[32];
+            sprintf( tmp, "0x%" PRIx64, m_baseAddr );
+            symName = tmp;
+        }
+    }
+    else
+    {
+        symName = worker.GetString( sym->name );
+    }
+
+    const bool limitView = view.m_statRange.active;
+    AddrStatData as;
+    if( m_calcInlineStats )
+    {
+        GatherIpStats( m_symAddr, as, worker, limitView, view, nullptr, false );
+        GatherAdditionalIpStats( m_symAddr, as, worker, limitView, view, nullptr, false );
+    }
+    else
+    {
+        GatherIpStats( m_baseAddr, as, worker, limitView, view, nullptr, false );
+        auto iptr = worker.GetInlineSymbolList( m_baseAddr, m_codeLen );
+        if( iptr )
+        {
+            const auto symEnd = m_baseAddr + m_codeLen;
+            while( *iptr < symEnd )
+            {
+                GatherIpStats( *iptr, as, worker, limitView, view, nullptr, false );
+                iptr++;
+            }
+        }
+        GatherAdditionalIpStats( m_baseAddr, as, worker, limitView, view, nullptr, false );
+    }
+
+    char tmp[32];
+    sprintf( tmp, "0x%" PRIx64, m_baseAddr );
+
+    nlohmann::json json = {
+        { "type", "assembly" },
+        { "symbol", symName },
+        { "address", tmp },
+        { "files", nlohmann::json::object() },
+        { "hint", "Code lines format is: fileIdx:line:offset:cost:callCost:assembly. To decode file names, access files[fileIdx]." }
+    };
+
+    std::vector<std::string> sources;
+    std::string code;
+
+    const auto end = m_asm.size() < stop ? m_asm.size() : stop;
+    for( size_t i=start; i<end; i++ ) code += FormatDisassemblyLine( m_asm[i], worker, sources, m_baseAddr, as, m_locMap ) + "\n";
+    json["code"] = code;
+    for( size_t i=0; i<sources.size(); i++ ) json["files"][std::to_string(i)] = sources[i];
+
+    view.AddLlmAttachment( json );
 }
 
 uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker, View& view )
@@ -2515,6 +2214,17 @@ uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker
     ImGui::SameLine();
     TextFocused( ICON_FA_WEIGHT_HANGING, MemSizeToString( m_codeLen ) );
     TooltipIfHovered( "Code size" );
+
+    if( s_config.llm )
+    {
+        ImGui::SameLine();
+        ImGui::Spacing();
+        ImGui::SameLine();
+        if( ImGui::SmallButton( ICON_FA_ROBOT ) )
+        {
+            AttachRangeToLlm( 0, m_asm.size(), worker, view );
+        }
+    }
 
 #ifndef TRACY_NO_FILESELECTOR
     ImGui::SameLine();
@@ -2642,14 +2352,21 @@ uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker
                         TextFocused( "Jump label:", tmp );
                         uint32_t srcline;
                         const auto srcidx = worker.GetLocationForAddress( v.first, srcline );
-                        if( srcline != 0 )
+                        if( srcidx.Active() )
                         {
                             const auto fileName = worker.GetString( srcidx );
                             const auto fileColor = GetHsvColor( srcidx.Idx(), 0 );
                             TextDisabledUnformatted( "Target location:" );
                             SmallColorBox( fileColor );
                             ImGui::SameLine();
-                            ImGui::Text( "%s:%i", fileName, srcline );
+                            if( srcline != 0 )
+                            {
+                                ImGui::Text( "%s:%i", fileName, srcline );
+                            }
+                            else
+                            {
+                                ImGui::Text( "%s", fileName );
+                            }
                             const auto symAddr = worker.GetInlineSymbolForAddress( v.first );
                             if( symAddr != 0 )
                             {
@@ -2772,80 +2489,8 @@ uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker
                 needSeparator = true;
                 if( ImGui::MenuItem( ICON_FA_ROBOT " Attach jump range in chat" ) )
                 {
-                    auto sym = worker.GetSymbolData( m_symAddr );
-                    assert( sym );
-                    const char* symName;
-                    if( sym->isInline )
-                    {
-                        auto parent = worker.GetSymbolData( m_baseAddr );
-                        if( parent )
-                        {
-                            symName = worker.GetString( parent->name );
-                        }
-                        else
-                        {
-                            char tmp[32];
-                            sprintf( tmp, "0x%" PRIx64, m_baseAddr );
-                            symName = tmp;
-                        }
-                    }
-                    else
-                    {
-                        symName = worker.GetString( sym->name );
-                    }
-
-                    nlohmann::json json = {
-                        { "type", "assembly" },
-                        { "symbol", symName },
-                        { "code", nlohmann::json::array() }
-                    };
-                    auto& code = json["code"];
-
                     auto [start, stop] = GetJumpRange( it->second );
-                    const auto end = m_asm.size() < stop ? m_asm.size() : stop;
-                    for( size_t i=start; i<end; i++ )
-                    {
-                        const auto& v = m_asm[i];
-                        nlohmann::json line;
-
-                        auto it = m_locMap.find( v.addr );
-                        if( it != m_locMap.end() ) line["label"] = ".L" + std::to_string( it->second );
-
-                        bool hasJump = false;
-                        if( v.jumpAddr != 0 )
-                        {
-                            auto lit = m_locMap.find( v.jumpAddr );
-                            if( lit != m_locMap.end() )
-                            {
-                                line["asm"] = v.mnemonic + " .L" + std::to_string( lit->second );
-                                hasJump = true;
-                            }
-                        }
-                        if( !hasJump )
-                        {
-                            if( v.operands.empty() )
-                            {
-                                line["asm"] = v.mnemonic;
-                            }
-                            else
-                            {
-                                line["asm"] = v.mnemonic + " " + v.operands;
-                            }
-                        }
-                        uint32_t srcline;
-                        const auto srcidx = worker.GetLocationForAddress( v.addr, srcline );
-                        if( srcline != 0 )
-                        {
-                            line["source"] = {
-                                { "file", worker.GetString( srcidx ) },
-                                { "line", srcline }
-                            };
-                        }
-
-                        code.emplace_back( std::move( line ) );
-                    }
-
-                    view.AddLlmAttachment( json );
+                    AttachRangeToLlm( start, stop, worker, view );
                 }
             }
             if( needSeparator ) ImGui::Separator();
@@ -2910,14 +2555,22 @@ uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker
             {
                 uint32_t srcline;
                 const auto srcidx = worker.GetLocationForAddress( m_jumpPopupAddr, srcline );
-                const auto fileName = srcline != 0 ? worker.GetString( srcidx ) : nullptr;
-                const auto fileColor = srcline != 0 ? GetHsvColor( srcidx.Idx(), 0 ) : 0;
+                const auto active = srcidx.Active();
+                const auto fileName = active ? worker.GetString( srcidx ) : nullptr;
+                const auto fileColor = active ? GetHsvColor( srcidx.Idx(), 0 ) : 0;
                 SmallColorBox( fileColor );
                 ImGui::SameLine();
                 char buf[1024];
                 if( fileName )
                 {
-                    snprintf( buf, 1024, "%s:%i", fileName, srcline );
+                    if( srcline != 0 )
+                    {
+                        snprintf( buf, sizeof( buf ), "%s:%i", fileName, srcline );
+                    }
+                    else
+                    {
+                        snprintf( buf, sizeof( buf ), "%s", fileName );
+                    }
                 }
                 else
                 {
@@ -2928,7 +2581,7 @@ uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker
                     {
                         const auto jumpName = worker.GetString( jumpSym->name );
                         const auto normalized = view.GetShortenName() != ShortenName::Never ? ShortenZoneName( ShortenName::OnlyNormalize, jumpName ) : jumpName;
-                        snprintf( buf, 1024, "%s+%" PRIu32, normalized, jumpOffset );
+                        snprintf( buf, sizeof( buf ), "%s+%" PRIu32, normalized, jumpOffset );
                     }
                     else
                     {
@@ -2978,41 +2631,59 @@ uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker
                 const auto normalized = view.GetShortenName() != ShortenName::Never ? ShortenZoneName( ShortenName::OnlyNormalize, symName ) : symName;
                 const auto fn = worker.GetString( lcs->data[i].file );
                 const auto srcline = lcs->data[i].line;
-                if( ImGui::BeginMenu( normalized ) )
+                const auto external = worker.IsFrameExternal( lcs->data[i].file, lcs->imageName );
+                if( srcline != 0 )
                 {
-                    if( SourceFileValid( fn, worker.GetCaptureTime(), view, worker ) )
+                    if( external ) ImGui::PushStyleColor( ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled] );
+                    const auto extend = ImGui::BeginMenu( normalized );
+                    if( external ) ImGui::PopStyleColor();
+                    if( extend )
                     {
-                        m_sourceTooltip.Parse( fn, worker, view );
-                        if( !m_sourceTooltip.empty() )
+                        if( SourceFileValid( fn, worker.GetCaptureTime(), view, worker ) )
                         {
-                            ImGui::PushFont( g_fonts.normal, FontSmall );
-                            ImGui::TextDisabled( "%s:%i", fn, srcline );
-                            ImGui::PopFont();
-                            ImGui::Separator();
-                            SetFont();
-                            PrintSourceFragment( m_sourceTooltip, srcline );
-                            UnsetFont();
+                            m_sourceTooltip.Parse( fn, worker, view );
+                            if( !m_sourceTooltip.empty() )
+                            {
+                                ImGui::PushFont( g_fonts.normal, FontSmall );
+                                ImGui::TextDisabled( "%s:%i", fn, srcline );
+                                ImGui::PopFont();
+                                ImGui::Separator();
+                                SetFont();
+                                PrintSourceFragment( m_sourceTooltip, srcline );
+                                UnsetFont();
+                            }
                         }
+                        else
+                        {
+                            TextDisabledUnformatted( "Source not available" );
+                        }
+                        ImGui::EndMenu();
+                        if( ImGui::IsItemClicked() )
+                        {
+                            m_targetLine = srcline;
+                            if( m_source.filename() == fn )
+                            {
+                                SelectLine( srcline, &worker, false );
+                                m_displayMode = DisplayMixed;
+                            }
+                            else if( SourceFileValid( fn, worker.GetCaptureTime(), view, worker ) )
+                            {
+                                ParseSource( fn, worker, view );
+                                SelectLine( srcline, &worker, false );
+                                SelectViewMode();
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    if( external )
+                    {
+                        TextDisabledUnformatted( normalized );
                     }
                     else
                     {
-                        TextDisabledUnformatted( "Source not available" );
-                    }
-                    ImGui::EndMenu();
-                    if( ImGui::IsItemClicked() )
-                    {
-                        m_targetLine = srcline;
-                        if( m_source.filename() == fn )
-                        {
-                            SelectLine( srcline, &worker, false );
-                            m_displayMode = DisplayMixed;
-                        }
-                        else if( SourceFileValid( fn, worker.GetCaptureTime(), view, worker ) )
-                        {
-                            ParseSource( fn, worker, view );
-                            SelectLine( srcline, &worker, false );
-                            SelectViewMode();
-                        }
+                        ImGui::TextUnformatted( normalized );
                     }
                 }
                 ImGui::PopID();
@@ -3099,30 +2770,43 @@ uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker
         }
         pdqsort_branchless( ipData.begin(), ipData.end(), []( const auto& l, const auto& r ) { return l.first < r.first; } );
 
-        const auto step = uint32_t( m_asm.size() * 2 / rect.GetHeight() );
+        const auto bucketHeight = std::max( 1, int( round( 3 * scale ) ) );
+        const auto bucketNum = std::max( 1, int( ceil( rect.GetHeight() / bucketHeight ) ) );
+        std::vector<int64_t> buckets( bucketNum, -1 );
+        for( auto& v : ipData )
+        {
+            const auto bucketStart = int( float( v.first ) / m_asm.size() * bucketNum );
+            auto bucketEnd = int( float( v.first + 1 ) / m_asm.size() * bucketNum );
+            if( bucketEnd == bucketStart ) bucketEnd++;
+            bucketEnd = std::min( bucketEnd, bucketNum - 1 );
+            for( auto idx = bucketStart; idx<bucketEnd; idx++ )
+            {
+                if( m_childCalls )
+                {
+                    buckets[idx] = std::max( buckets[idx], int64_t( v.second.local + v.second.ext ) );
+                }
+                else
+                {
+                    buckets[idx] = std::max( buckets[idx], int64_t( v.second.local ) );
+                }
+            }
+        }
+
+        const auto gs = 4.f * scale;
         const auto x40 = round( rect.Min.x + rect.GetWidth() * 0.4f );
         const auto x60 = round( rect.Min.x + rect.GetWidth() * 0.6f );
-
-        auto it = ipData.begin();
-        while( it != ipData.end() )
+        for( size_t i=0; i<buckets.size(); i++ )
         {
-            const auto firstLine = it->first;
-            AddrStat ipSum = {};
-            while( it != ipData.end() && it->first <= firstLine + step )
+            if( buckets[i] <= 0 ) continue;
+            const auto y0 = round( rect.Min.y + float( i ) / bucketNum * rect.GetHeight() );
+            const auto y1 = round( rect.Min.y + float( i + 1 ) / bucketNum * rect.GetHeight() );
+            const auto color = GetHotnessColor( buckets[i], m_childCalls ? (as.ipMaxAsm.local + as.ipMaxAsm.ext) : as.ipMaxAsm.local );
+            const auto glow = GetHotnessGlow( buckets[i], m_childCalls ? (as.ipMaxAsm.local + as.ipMaxAsm.ext) : as.ipMaxAsm.local );
+            draw->AddRectFilled( ImVec2( x40, y0 ), ImVec2( x60, y1 ), color );
+            if( glow )
             {
-                ipSum += it->second;
-                ++it;
-            }
-            const auto ly = round( rect.Min.y + float( firstLine ) / m_asm.size() * rect.GetHeight() );
-            if( m_childCalls )
-            {
-                const auto color = GetHotnessColor( ipSum.local + ipSum.ext, as.ipMaxAsm.local + as.ipMaxAsm.ext );
-                draw->AddRectFilled( ImVec2( x40, ly ), ImVec2( x60, ly+3*scale ), color );
-            }
-            else if( as.ipMaxAsm.local != 0 )
-            {
-                const auto color = GetHotnessColor( ipSum.local, as.ipMaxAsm.local );
-                draw->AddRectFilled( ImVec2( x40, ly ), ImVec2( x60, ly+3*scale ), color );
+                draw->AddRectFilledMultiColor( ImVec2( x60, y0 ), ImVec2( x60 + gs, y1 ), glow, 0, 0, glow );
+                draw->AddRectFilledMultiColor( ImVec2( x40 - gs, y0 ), ImVec2( x40, y1 ), 0, glow, glow, 0 );
             }
         }
 
@@ -3279,7 +2963,7 @@ static bool PrintPercentage( float val, uint32_t col = 0xFFFFFFFF )
     memset( buf, ' ', 7-sz );
     memcpy( buf + 7 - sz, tmp, sz+1 );
 
-    draw->AddRectFilled( wpos + ImVec2( 0, 1 ), wpos + ImVec2( val * tw / 100, ty ), 0xFF444444 );
+    draw->AddRectFilled( wpos + ImVec2( 0, 1 ), wpos + ImVec2( std::min( val, 100.f ) * tw / 100, ty ), 0xFF444444 );
     DrawTextContrast( draw, wpos + ImVec2( htw, 0 ), col, buf );
 
     ImGui::ItemSize( ImVec2( stw * 7, ty ), 0 );
@@ -3492,12 +3176,13 @@ void SourceView::RenderLine( const Tokenizer::Line& line, int lineNum, const Add
                 col = GetHotnessColor( ipcnt.local, as.ipMaxSrc.local );
                 glow = GetHotnessGlow( ipcnt.local, as.ipMaxSrc.local );
             }
+            const auto ds = scale * 3;
             if( glow )
             {
-                DrawLine( draw, dpos + ImVec2( scale, 2 ), dpos + ImVec2( scale, ty-1 ), glow, scale );
-                DrawLine( draw, dpos + ImVec2( -scale, 2 ), dpos + ImVec2( -scale, ty-1 ), glow, scale );
+                draw->AddRectFilledMultiColor( wpos + ImVec2( 0.5f + ds * 0.5f, 2 ), wpos + ImVec2( 0.5f + ds * 2.5f, ty-1 ), glow, 0, 0, glow );
+                draw->AddRectFilledMultiColor( wpos + ImVec2( 0.5f - ds * 2.5f, 2 ), wpos + ImVec2( 0.5f - ds * 0.5f, ty-1 ), 0, glow, glow, 0 );
             }
-            DrawLine( draw, dpos + ImVec2( 0, 2 ), dpos + ImVec2( 0, ty-1 ), col, scale );
+            DrawLine( draw, wpos + ImVec2( 0.5f, 2 ), wpos + ImVec2( 0.5f, ty-1 ), col, ds );
         }
         ImGui::SameLine( 0, ty );
     }
@@ -3845,12 +3530,13 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                 col = GetHotnessColor( ipcnt.local, as.ipMaxAsm.local );
                 glow = GetHotnessGlow( ipcnt.local, as.ipMaxAsm.local );
             }
+            const auto ds = scale * 3;
             if( glow )
             {
-                DrawLine( draw, dpos + ImVec2( scale, 2 ), dpos + ImVec2( scale, ty-1 ), glow, scale );
-                DrawLine( draw, dpos + ImVec2( -scale, 2 ), dpos + ImVec2( -scale, ty-1 ), glow, scale );
+                draw->AddRectFilledMultiColor( wpos + ImVec2( 0.5f + ds * 0.5f, 2 ), wpos + ImVec2( 0.5f + ds * 2.5f, ty-1 ), glow, 0, 0, glow );
+                draw->AddRectFilledMultiColor( wpos + ImVec2( 0.5f - ds * 2.5f, 2 ), wpos + ImVec2( 0.5f - ds * 0.5f, ty-1 ), 0, glow, glow, 0 );
             }
-            DrawLine( draw, dpos + ImVec2( 0, 2 ), dpos + ImVec2( 0, ty-1 ), col, scale );
+            DrawLine( draw, wpos + ImVec2( 0.5f, 2 ), wpos + ImVec2( 0.5f, ty-1 ), col, ds );
         }
         ImGui::SameLine( 0, ty );
     }
@@ -3965,7 +3651,7 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
         ImVec2 startPos;
         uint32_t srcline;
         const auto srcidx = worker.GetLocationForAddress( line.addr, srcline );
-        if( srcline != 0 )
+        if( srcidx.Active() )
         {
             const auto fileName = worker.GetString( srcidx );
             const auto fileColor = GetHsvColor( srcidx.Idx(), 0 );
@@ -3978,11 +3664,25 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
             const auto fnsz = strlen( fileName );
             if( fnsz < MaxSourceLength - m_maxLine )
             {
-                sprintf( buf, "%s:%i", fileName, srcline );
+                if( srcline != 0 )
+                {
+                    snprintf( buf, sizeof( buf ), "%s:%i", fileName, srcline );
+                }
+                else
+                {
+                    snprintf( buf, sizeof( buf ), "%s", fileName );
+                }
             }
             else
             {
-                sprintf( buf, "\xe2\x80\xa6%s:%i", fileName+fnsz-(MaxSourceLength-1-1-m_maxLine), srcline );
+                if( srcline != 0 )
+                {
+                    snprintf( buf, sizeof( buf ), "\xe2\x80\xa6%s:%i", fileName+fnsz-(MaxSourceLength-1-1-m_maxLine), srcline );
+                }
+                else
+                {
+                    snprintf( buf, sizeof( buf ), "\xe2\x80\xa6%s", fileName+fnsz-(MaxSourceLength-1-1-m_maxLine) );
+                }
             }
             TextDisabledUnformatted( buf );
             if( ImGui::IsItemHovered() )
@@ -4013,16 +3713,19 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                     }
                 }
                 TextFocused( "File:", fileName );
-                TextFocused( "Line:", RealToString( srcline ) );
-                if( SourceFileValid( fileName, worker.GetCaptureTime(), view, worker ) )
+                if( srcline != 0 )
                 {
-                    m_sourceTooltip.Parse( fileName, worker, view );
-                    if( !m_sourceTooltip.empty() )
+                    TextFocused( "Line:", RealToString( srcline ) );
+                    if( SourceFileValid( fileName, worker.GetCaptureTime(), view, worker ) )
                     {
-                        ImGui::Separator();
-                        SetFont();
-                        PrintSourceFragment( m_sourceTooltip, srcline );
-                        UnsetFont();
+                        m_sourceTooltip.Parse( fileName, worker, view );
+                        if( !m_sourceTooltip.empty() )
+                        {
+                            ImGui::Separator();
+                            SetFont();
+                            PrintSourceFragment( m_sourceTooltip, srcline );
+                            UnsetFont();
+                        }
                     }
                 }
                 const auto frame = worker.GetCallstackFrame( worker.PackPointer( line.addr ) );
@@ -4030,19 +3733,7 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                 {
                     ImGui::Separator();
                     TextDisabledUnformatted( "Local call stack:" );
-                    for( uint8_t i=0; i<frame->size; i++ )
-                    {
-                        ImGui::TextDisabled( "%i.", i+1 );
-                        ImGui::SameLine();
-                        const auto symName = worker.GetString( frame->data[i].name );
-                        const auto normalized = view.GetShortenName() != ShortenName::Never ? ShortenZoneName( ShortenName::OnlyNormalize, symName ) : symName;
-                        ImGui::Text( "%s", normalized );
-                        ImGui::SameLine();
-                        ImGui::PushFont( g_fonts.normal, FontSmall );
-                        ImGui::AlignTextToFramePadding();
-                        ImGui::TextDisabled( "%s:%i", worker.GetString( frame->data[i].file ), frame->data[i].line );
-                        ImGui::PopFont();
-                    }
+                    PrintLocalStack( frame, worker, view );
                 }
                 ImGui::EndTooltip();
                 SetFont();
@@ -4301,17 +3992,17 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                 if( opdesc != 0 )
                 {
                     ImGui::TextUnformatted( OpDescList[opdesc] );
-                    if( line.opType == OpType::Privileged )
+                    if( line.opType == AsmOpType::Privileged )
                     {
                         ImGui::SameLine();
                         ImGui::Spacing();
                         ImGui::SameLine();
-                        TextColoredUnformatted( AsmOpTypeColors[(int)OpType::Privileged], "privileged" );
+                        TextColoredUnformatted( AsmOpTypeColors[(int)AsmOpType::Privileged], "privileged" );
                     }
                 }
-                else if( line.opType == OpType::Privileged )
+                else if( line.opType == AsmOpType::Privileged )
                 {
-                    TextColoredUnformatted( AsmOpTypeColors[(int)OpType::Privileged], "Privileged" );
+                    TextColoredUnformatted( AsmOpTypeColors[(int)AsmOpType::Privileged], "Privileged" );
                 }
                 if( jumpName )
                 {
@@ -4342,7 +4033,7 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                     {
                         uint32_t srcline;
                         const auto srcidx = worker.GetLocationForAddress( line.jumpAddr, srcline );
-                        if( srcline != 0 )
+                        if( srcidx.Active() )
                         {
                             const auto fileName = worker.GetString( srcidx );
                             const auto fileColor = GetHsvColor( srcidx.Idx(), 0 );
@@ -4350,7 +4041,14 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                             ImGui::SameLine();
                             SmallColorBox( fileColor );
                             ImGui::SameLine();
-                            ImGui::Text( "%s:%i", fileName, srcline );
+                            if( srcline != 0 )
+                            {
+                                ImGui::Text( "%s:%i", fileName, srcline );
+                            }
+                            else
+                            {
+                                ImGui::Text( "%s", fileName );
+                            }
                         }
                     }
                 }
@@ -4494,7 +4192,7 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
             {
                 uint32_t srcline;
                 const auto srcidx = worker.GetLocationForAddress( line.jumpAddr, srcline );
-                if( srcline != 0 )
+                if( srcidx.Active() )
                 {
                     const auto fileName = worker.GetString( srcidx );
                     const auto fileColor = GetHsvColor( srcidx.Idx(), 0 );
@@ -4502,7 +4200,14 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                     ImGui::SameLine();
                     SmallColorBox( fileColor );
                     ImGui::SameLine();
-                    ImGui::Text( "%s:%i", fileName, srcline );
+                    if( srcline != 0 )
+                    {
+                        ImGui::Text( "%s:%i", fileName, srcline );
+                    }
+                    else
+                    {
+                        ImGui::Text( "%s", fileName );
+                    }
                 }
             }
             ImGui::EndTooltip();
@@ -4673,18 +4378,15 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                 if( srcline != 0 )
                 {
                     const auto fileName = worker.GetString( srcidx );
-                    if( fileName )
+                    if( fileName && SourceFileValid( fileName, worker.GetCaptureTime(), view, worker ) )
                     {
-                        if( SourceFileValid( fileName, worker.GetCaptureTime(), view, worker ) )
+                        m_sourceTooltip.Parse( fileName, worker, view );
+                        if( !m_sourceTooltip.empty() )
                         {
-                            m_sourceTooltip.Parse( fileName, worker, view );
-                            if( !m_sourceTooltip.empty() )
-                            {
-                                ImGui::Separator();
-                                SetFont();
-                                PrintSourceFragment( m_sourceTooltip, srcline );
-                                UnsetFont();
-                            }
+                            ImGui::Separator();
+                            SetFont();
+                            PrintSourceFragment( m_sourceTooltip, srcline );
+                            UnsetFont();
                         }
                     }
                 }
@@ -5182,235 +4884,6 @@ void SourceView::CountHwStats( AddrStatData& as, Worker& worker, const View& vie
     }
 }
 
-void SourceView::GatherIpStats( uint64_t baseAddr, AddrStatData& as, const Worker& worker, bool limitView, const View& view )
-{
-    auto filename = m_source.filename();
-    if( limitView )
-    {
-        auto vec = worker.GetSamplesForSymbol( baseAddr );
-        if( !vec ) return;
-        auto it = std::lower_bound( vec->begin(), vec->end(), view.m_statRange.min, [] ( const auto& lhs, const auto& rhs ) { return lhs.time.Val() < rhs; } );
-        if( it == vec->end() ) return;
-        auto end = std::lower_bound( it, vec->end(), view.m_statRange.max, [] ( const auto& lhs, const auto& rhs ) { return lhs.time.Val() < rhs; } );
-        as.ipTotalAsm.local += end - it;
-        while( it != end )
-        {
-            if( filename )
-            {
-                auto frame = worker.GetCallstackFrame( it->ip );
-                if( frame )
-                {
-                    const auto end = m_propagateInlines ? frame->size : 1;
-                    for( uint8_t i=0; i<end; i++ )
-                    {
-                        const auto line = frame->data[i].line;
-                        if( line != 0 )
-                        {
-                            auto ffn = worker.GetString( frame->data[i].file );
-                            if( strcmp( ffn, filename ) == 0 )
-                            {
-                                auto sit = as.ipCountSrc.find( line );
-                                if( sit == as.ipCountSrc.end() )
-                                {
-                                    as.ipCountSrc.emplace( line, AddrStat { 1, 0 } );
-                                    if( as.ipMaxSrc.local < 1 ) as.ipMaxSrc.local = 1;
-                                }
-                                else
-                                {
-                                    const auto sum = sit->second.local + 1;
-                                    sit->second.local = sum;
-                                    if( as.ipMaxSrc.local < sum ) as.ipMaxSrc.local = sum;
-                                }
-                                as.ipTotalSrc.local++;
-                            }
-                        }
-                    }
-                }
-            }
-
-            auto addr = worker.GetCanonicalPointer( it->ip );
-            auto sit = as.ipCountAsm.find( addr );
-            if( sit == as.ipCountAsm.end() )
-            {
-                as.ipCountAsm.emplace( addr, AddrStat{ 1, 0 } );
-                if( as.ipMaxAsm.local < 1 ) as.ipMaxAsm.local = 1;
-            }
-            else
-            {
-                const auto sum = sit->second.local + 1;
-                sit->second.local = sum;
-                if( as.ipMaxAsm.local < sum ) as.ipMaxAsm.local = sum;
-            }
-
-            ++it;
-        }
-    }
-    else
-    {
-        auto ipmap = worker.GetSymbolInstructionPointers( baseAddr );
-        if( !ipmap ) return;
-        for( auto& ip : *ipmap )
-        {
-            auto addr = worker.GetCanonicalPointer( ip.first );
-            assert( as.ipCountAsm.find( addr ) == as.ipCountAsm.end() );
-            as.ipCountAsm.emplace( addr, AddrStat { ip.second, 0 } );
-            as.ipTotalAsm.local += ip.second;
-            if( as.ipMaxAsm.local < ip.second ) as.ipMaxAsm.local = ip.second;
-
-            if( filename )
-            {
-                auto frame = worker.GetCallstackFrame( ip.first );
-                if( frame )
-                {
-                    const auto end = m_propagateInlines ? frame->size : 1;
-                    for( uint8_t i=0; i<end; i++ )
-                    {
-                        const auto line = frame->data[i].line;
-                        if( line != 0 )
-                        {
-                            auto ffn = worker.GetString( frame->data[i].file );
-                            if( strcmp( ffn, filename ) == 0 )
-                            {
-                                auto it = as.ipCountSrc.find( line );
-                                if( it == as.ipCountSrc.end() )
-                                {
-                                    as.ipCountSrc.emplace( line, AddrStat{ ip.second, 0 } );
-                                    if( as.ipMaxSrc.local < ip.second ) as.ipMaxSrc.local = ip.second;
-                                }
-                                else
-                                {
-                                    const auto sum = it->second.local + ip.second;
-                                    it->second.local = sum;
-                                    if( as.ipMaxSrc.local < sum ) as.ipMaxSrc.local = sum;
-                                }
-                                as.ipTotalSrc.local += ip.second;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-void SourceView::GatherAdditionalIpStats( uint64_t baseAddr, AddrStatData& as, const Worker& worker, bool limitView, const View& view )
-{
-    if( !worker.AreSymbolSamplesReady() ) return;
-    auto sym = worker.GetSymbolData( baseAddr );
-    if( !sym ) return;
-
-    auto filename = m_source.filename();
-    if( limitView )
-    {
-        for( uint64_t ip = baseAddr; ip < baseAddr + sym->size.Val(); ip++ )
-        {
-            auto cp = worker.GetChildSamples( ip );
-            if( !cp ) continue;
-            auto it = std::lower_bound( cp->begin(), cp->end(), view.m_statRange.min, [] ( const auto& lhs, const auto& rhs ) { return lhs.time.Val() < rhs; } );
-            if( it == cp->end() ) continue;
-            auto end = std::lower_bound( it, cp->end(), view.m_statRange.max, [] ( const auto& lhs, const auto& rhs ) { return lhs.time.Val() < rhs; } );
-            const auto ccnt = uint64_t( end - it );
-            auto eit = as.ipCountAsm.find( ip );
-            if( eit == as.ipCountAsm.end() )
-            {
-                as.ipCountAsm.emplace( ip, AddrStat { 0, ccnt } );
-            }
-            else
-            {
-                eit->second.ext += ccnt;
-            }
-            as.ipTotalAsm.ext += ccnt;
-            if( as.ipMaxAsm.ext < ccnt ) as.ipMaxAsm.ext = ccnt;
-
-            if( filename )
-            {
-                auto frame = worker.GetCallstackFrame( worker.PackPointer( ip ) );
-                if( frame )
-                {
-                    const auto end = m_propagateInlines ? frame->size : 1;
-                    for( uint8_t i=0; i<end; i++ )
-                    {
-                        const auto line = frame->data[i].line;
-                        if( line != 0 )
-                        {
-                            auto ffn = worker.GetString( frame->data[i].file );
-                            if( strcmp( ffn, filename ) == 0 )
-                            {
-                                auto sit = as.ipCountSrc.find( line );
-                                if( sit == as.ipCountSrc.end() )
-                                {
-                                    as.ipCountSrc.emplace( line, AddrStat{ 0, ccnt } );
-                                    if( as.ipMaxSrc.ext < ccnt ) as.ipMaxSrc.ext = ccnt;
-                                }
-                                else
-                                {
-                                    const auto csum = sit->second.ext + ccnt;
-                                    sit->second.ext = csum;
-                                    if( as.ipMaxSrc.ext < csum ) as.ipMaxSrc.ext = csum;
-                                }
-                                as.ipTotalSrc.ext += ccnt;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    else
-    {
-        for( uint64_t ip = baseAddr; ip < baseAddr + sym->size.Val(); ip++ )
-        {
-            auto cp = worker.GetChildSamples( ip );
-            if( !cp ) continue;
-            const auto ccnt = cp->size();
-            auto eit = as.ipCountAsm.find( ip );
-            if( eit == as.ipCountAsm.end() )
-            {
-                as.ipCountAsm.emplace( ip, AddrStat { 0, ccnt } );
-            }
-            else
-            {
-                eit->second.ext += ccnt;
-            }
-            as.ipTotalAsm.ext += ccnt;
-            if( as.ipMaxAsm.ext < ccnt ) as.ipMaxAsm.ext = ccnt;
-
-            if( filename )
-            {
-                auto frame = worker.GetCallstackFrame( worker.PackPointer( ip ) );
-                if( frame )
-                {
-                    const auto end = m_propagateInlines ? frame->size : 1;
-                    for( uint8_t i=0; i<end; i++ )
-                    {
-                        const auto line = frame->data[i].line;
-                        if( line != 0 )
-                        {
-                            auto ffn = worker.GetString( frame->data[i].file );
-                            if( strcmp( ffn, filename ) == 0 )
-                            {
-                                auto sit = as.ipCountSrc.find( line );
-                                if( sit == as.ipCountSrc.end() )
-                                {
-                                    as.ipCountSrc.emplace( line, AddrStat{ 0, ccnt } );
-                                    if( as.ipMaxSrc.ext < ccnt ) as.ipMaxSrc.ext = ccnt;
-                                }
-                                else
-                                {
-                                    const auto csum = sit->second.ext + ccnt;
-                                    sit->second.ext = csum;
-                                    if( as.ipMaxSrc.ext < csum ) as.ipMaxSrc.ext = csum;
-                                }
-                                as.ipTotalSrc.ext += ccnt;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 void SourceView::GatherChildStats( uint64_t baseAddr, unordered_flat_map<uint64_t, uint32_t>& map, Worker& worker, bool limitView, const View& view )
 {
     if( !worker.AreSymbolSamplesReady() ) return;
@@ -5811,11 +5284,18 @@ void SourceView::Save( const Worker& worker, size_t start, size_t stop )
             }
             uint32_t srcline;
             const auto srcidx = worker.GetLocationForAddress( v.addr, srcline );
-            if( srcline != 0 && psz > 0 )
+            if( srcidx.Active() && psz > 0 )
             {
                 int spaces = std::max( m_maxMnemonicLen + m_maxOperandLen - psz, 0 ) + 1;
                 while( spaces-- ) fputc( ' ', f );
-                fprintf( f, "# %s:%i\n", worker.GetString( srcidx ), srcline );
+                if( srcline != 0 )
+                {
+                    fprintf( f, "# %s:%i\n", worker.GetString( srcidx ), srcline );
+                }
+                else
+                {
+                    fprintf( f, "# %s\n", worker.GetString( srcidx ) );
+                }
             }
             else
             {
@@ -5837,6 +5317,27 @@ void SourceView::UnsetFont()
 {
     ImGui::PopStyleVar();
     ImGui::PopFont();
+}
+
+bool SourceView::SwitchTo( const char* fileName, int line, const Worker& worker, const View& view )
+{
+    if( m_asm.empty() ) return false;
+    for( auto& v : m_sourceFiles )
+    {
+        auto fstr = worker.GetString( StringIdx( v.first ) );
+        if( SourceFileValid( fstr, worker.GetCaptureTime(), view, worker ) )
+        {
+            if( strcmp( fileName, fstr ) == 0 )
+            {
+                ParseSource( fstr, worker, view );
+                m_targetLine = line;
+                SelectLine( line, &worker );
+                SelectViewMode();
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 }
