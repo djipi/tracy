@@ -1,5 +1,7 @@
 .vs
-_build
+_build/*
+!_build/vs2022.bat
+!_build/MSYS2_MinGW64.sh
 _compiler
 tools/*
 *.d
@@ -25,7 +27,6 @@ profiler/build/win32/packages
 profiler/build/win32/Tracy.aps
 .deps/
 .dirstamp
-/_*/**
 /**/__pycache__/**
 extra/vswhere.exe
 extra/tracy-build
