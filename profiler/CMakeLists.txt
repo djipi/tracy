@@ -44,10 +44,16 @@ ExternalProject_Add(embed
 )
 
 function(Embed LIST NAME FILE)
+    cmake_parse_arguments(EMBED "TEXT" "" "" ${ARGN})
+    if(EMBED_TEXT)
+        set(EMBED_FLAGS -t)
+    else()
+        set(EMBED_FLAGS)
+    endif()
     add_custom_command(
         OUTPUT data/${NAME}.cpp data/${NAME}.hpp
         COMMAND ${CMAKE_COMMAND} -E make_directory data
-        COMMAND ${CMAKE_CURRENT_BINARY_DIR}/embed ${NAME} ${CMAKE_CURRENT_LIST_DIR}/${FILE} data/${NAME}
+        COMMAND ${CMAKE_CURRENT_BINARY_DIR}/embed ${EMBED_FLAGS} ${NAME} ${CMAKE_CURRENT_LIST_DIR}/${FILE} data/${NAME}
         DEPENDS embed ${CMAKE_CURRENT_LIST_DIR}/${FILE}
     )
     list(APPEND ${LIST} data/${NAME}.cpp)
@@ -70,6 +76,7 @@ set(SERVER_FILES
     TracyMarkdown.cpp
     TracyMicroArchitecture.cpp
     TracyMouse.cpp
+    TracyNameGen.cpp
     TracyProtoHistory.cpp
     TracySourceContents.cpp
     TracySourceTokenizer.cpp
@@ -94,6 +101,7 @@ set(SERVER_FILES
     TracyView_FindZone.cpp
     TracyView_FlameGraph.cpp
     TracyView_FrameOverview.cpp
+    TracyView_FrameStatistics.cpp
     TracyView_FrameTimeline.cpp
     TracyView_FrameTree.cpp
     TracyView_GpuTimeline.cpp
@@ -145,18 +153,33 @@ set(PROFILER_FILES
     src/winmainArchDiscovery.cpp
 )
 
-Embed(PROFILER_FILES SystemPrompt src/llm/system.prompt.md)
-Embed(PROFILER_FILES SkillCallstack src/llm/skill.callstack.md)
-Embed(PROFILER_FILES SkillOptimization src/llm/skill.optimization.md)
-Embed(PROFILER_FILES ToolsJson src/llm/tools.json)
+Embed(PROFILER_FILES SystemPrompt src/llm/system.prompt.md TEXT)
+Embed(PROFILER_FILES SkillCallstack src/llm/skill.callstack.md TEXT)
+Embed(PROFILER_FILES SkillOptimization src/llm/skill.optimization.md TEXT)
+Embed(PROFILER_FILES ToolsJson src/llm/tools.json TEXT)
+
 Embed(PROFILER_FILES FontFixed src/font/FiraCode-Retina.ttf)
-Embed(PROFILER_FILES FontIcons src/font/Font\ Awesome\ 6\ Free-Solid-900.otf)
+Embed(PROFILER_FILES FontIcons src/font/Font\ Awesome\ 7\ Free-Solid-900.otf)
 Embed(PROFILER_FILES FontNormal src/font/Roboto-Regular.ttf)
 Embed(PROFILER_FILES FontBold src/font/Roboto-Bold.ttf)
 Embed(PROFILER_FILES FontItalic src/font/Roboto-Italic.ttf)
 Embed(PROFILER_FILES FontBoldItalic src/font/Roboto-BoldItalic.ttf)
 Embed(PROFILER_FILES FontEmoji src/font/NotoEmoji-Regular.ttf)
-Embed(PROFILER_FILES Manual ../manual/tracy.md)
+
+Embed(PROFILER_FILES Manual ../manual/tracy.md TEXT)
+
+Embed(PROFILER_FILES Text100Million src/achievements/100Million.md TEXT)
+Embed(PROFILER_FILES TextConnectToClient src/achievements/ConnectToClient.md TEXT)
+Embed(PROFILER_FILES TextFindZone src/achievements/FindZone.md TEXT)
+Embed(PROFILER_FILES TextFrameImages src/achievements/FrameImages.md TEXT)
+Embed(PROFILER_FILES TextGlobalSettings src/achievements/GlobalSettings.md TEXT)
+Embed(PROFILER_FILES TextInstrumentationIntro src/achievements/InstrumentationIntro.md TEXT)
+Embed(PROFILER_FILES TextInstrumentationStatistics src/achievements/InstrumentationStatistics.md TEXT)
+Embed(PROFILER_FILES TextInstrumentFrames src/achievements/InstrumentFrames.md TEXT)
+Embed(PROFILER_FILES TextIntro src/achievements/Intro.md TEXT)
+Embed(PROFILER_FILES TextLoadTrace src/achievements/LoadTrace.md TEXT)
+Embed(PROFILER_FILES TextSamplingIntro src/achievements/SamplingIntro.md TEXT)
+Embed(PROFILER_FILES TextSaveTrace src/achievements/SaveTrace.md TEXT)
 
 set(INCLUDES "${CMAKE_CURRENT_BINARY_DIR}")
 set(LIBS "")
@@ -278,7 +301,19 @@ if(NOT EMSCRIPTEN)
 endif()
 
 if(EMSCRIPTEN)
-    target_link_options(${PROJECT_NAME} PRIVATE -pthread -sASSERTIONS=0 -sINITIAL_MEMORY=384mb -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4gb -sSTACK_SIZE=1048576 -sWASM_BIGINT=1 -sPTHREAD_POOL_SIZE=8 -sEXPORTED_FUNCTIONS=_main,_nativeOpenFile,_tracy_paste_clipboard -sEXPORTED_RUNTIME_METHODS=ccall -sENVIRONMENT=web,worker --preload-file embed.tracy)
+    target_link_options(${PROJECT_NAME} PRIVATE
+        -pthread
+        -sASSERTIONS=0
+        -sINITIAL_MEMORY=384mb
+        -sALLOW_MEMORY_GROWTH=1
+        -sMAXIMUM_MEMORY=4gb
+        -sSTACK_SIZE=1048576
+        -sPTHREAD_POOL_SIZE=8
+        -sEXPORTED_FUNCTIONS=_main,_nativeOpenFile,_tracy_paste_clipboard
+        -sEXPORTED_RUNTIME_METHODS=ccall
+        -sENVIRONMENT=web,worker
+        --preload-file embed.tracy
+    )
 
     file(DOWNLOAD https://share.nereid.pl/i/embed.tracy ${CMAKE_CURRENT_BINARY_DIR}/embed.tracy EXPECTED_MD5 ca0fa4f01e7b8ca5581daa16b16c768d)
     file(COPY ${CMAKE_CURRENT_LIST_DIR}/wasm/index.html DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

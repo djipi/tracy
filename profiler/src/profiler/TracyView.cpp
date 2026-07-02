@@ -26,7 +26,7 @@
 #include "../Fonts.hpp"
 
 #include "imgui_internal.h"
-#include "IconsFontAwesome6.h"
+#include "IconsFontAwesome7.h"
 
 namespace tracy
 {
@@ -64,6 +64,7 @@ View::View( void(*cbMainThread)(const std::function<void()>&, bool), const char*
 {
     InitTextEditor();
     SetupConfig();
+    SetupRanges();
 }
 
 View::View( void(*cbMainThread)(const std::function<void()>&, bool), FileRead& f, SetTitleCallback stcb, SetScaleCallback sscb, AttentionCallback acb, AchievementsMgr* amgr )
@@ -78,7 +79,7 @@ View::View( void(*cbMainThread)(const std::function<void()>&, bool), FileRead& f
     , m_stcb( stcb )
     , m_sscb( sscb )
     , m_acb( acb )
-    , m_userData( m_worker.GetCaptureProgram().c_str(), m_worker.GetCaptureTime() )
+    , m_userData( m_worker.GetCaptureProgram().c_str(), m_worker.GetCaptureTime(), f.GetFilename().c_str() )
     , m_cbMainThread( cbMainThread )
     , m_achievementsMgr( amgr )
     , m_achievements( s_config.achievements )
@@ -98,6 +99,7 @@ View::View( void(*cbMainThread)(const std::function<void()>&, bool), FileRead& f
 
     InitTextEditor();
     SetupConfig();
+    SetupRanges();
 
     m_vd.zvStart = m_worker.GetFirstTime();
     m_vd.zvEnd = m_worker.GetLastTime();
@@ -115,11 +117,7 @@ View::View( void(*cbMainThread)(const std::function<void()>&, bool), FileRead& f
 View::~View()
 {
     m_worker.Shutdown();
-
-    m_userData.StoreState( m_vd );
-    m_userData.StoreAnnotations( m_annotations );
-    m_userData.StoreSourceSubstitutions( m_sourceSubstitutions );
-    m_userData.Save();
+    SaveUserData();
 
     if( m_compare.loadThread.joinable() ) m_compare.loadThread.join();
     if( m_saveThread.joinable() ) m_saveThread.join();
@@ -154,6 +152,14 @@ void View::Achieve( const char* id )
 {
     if( !m_achievements || !m_achievementsMgr ) return;
     m_achievementsMgr->Achieve( id );
+}
+
+void View::SaveUserData()
+{
+    m_userData.StoreState( m_vd );
+    m_userData.StoreAnnotations( m_annotations );
+    m_userData.StoreSourceSubstitutions( m_sourceSubstitutions );
+    m_userData.Save();
 }
 
 void View::ViewSource( const char* fileName, int line )
@@ -243,6 +249,26 @@ void View::ViewSymbol( const char* fileName, int line, uint64_t baseAddr, uint64
     assert( fileName || symAddr );
     m_sourceViewFile = fileName ? fileName : (const char*)~uint64_t( 0 );
     m_sourceView->OpenSymbol( fileName, line, baseAddr, symAddr, m_worker, *this );
+}
+
+void View::UpdateThreadOrder()
+{
+    const auto& threadData = m_worker.GetThreadData();
+    if( threadData.size() == m_threadOrder.size() ) return;
+
+    m_threadOrder.reserve( threadData.size() );
+    // Only new threads are in the end of the worker's ThreadData vector.
+    // Threads which get reordered by received thread hints are not new, yet removed from m_threadOrder.
+    // Therefore, those are kept in m_threadReinsert and are gathered before the remaining new threads.
+    const size_t numReinsert = m_threadReinsert.size();
+    const size_t numNew = threadData.size() - m_threadOrder.size() - numReinsert;
+    for( size_t i = 0; i < numReinsert + numNew; i++ )
+    {
+        const ThreadData* td = i < numReinsert ? m_threadReinsert[i] : threadData[m_threadOrder.size()];
+        auto it = std::find_if( m_threadOrder.begin(), m_threadOrder.end(), [td]( const auto t ) { return td->groupHint < t->groupHint; } );
+        m_threadOrder.insert( it, td );
+    }
+    m_threadReinsert.clear();
 }
 
 bool View::ViewDispatch( const char* fileName, int line, uint64_t symAddr )
@@ -734,7 +760,7 @@ bool View::DrawImpl()
         m_uarchSet = true;
         m_sourceView->SetCpuId( m_worker.GetCpuId() );
     }
-    if( !m_userData.Valid() ) m_userData.Init( m_worker.GetCaptureProgram().c_str(), m_worker.GetCaptureTime() );
+    if( !m_userData.Valid() ) m_userData.Init( m_worker.GetCaptureProgram().c_str(), m_worker.GetCaptureTime(), nullptr );
     if( m_saveThreadState.load( std::memory_order_acquire ) == SaveThreadState::NeedsJoin )
     {
         m_saveThread.join();
@@ -954,6 +980,10 @@ bool View::DrawImpl()
         if( ButtonDisablable( ICON_FA_HOURGLASS_HALF " Wait stacks", cscnt == 0 ) )
         {
             m_showWaitStacks = true;
+        }
+        if( ButtonDisablable( ICON_FA_IMAGES " Frame statistics", !m_worker.AreFramesUsed() ) )
+        {
+            m_showFrameStatistics = true;
         }
         ImGui::EndPopup();
     }
@@ -1183,6 +1213,7 @@ bool View::DrawImpl()
     if( m_showRanges ) DrawRanges();
     if( m_showWaitStacks ) DrawWaitStacks();
     if( m_showManual ) DrawManual();
+    if( m_showFrameStatistics ) DrawFrameStatistics();
 #ifndef __EMSCRIPTEN__
     if( m_llm.m_show ) m_llm.Draw();
 #endif
@@ -1196,36 +1227,19 @@ bool View::DrawImpl()
     {
         const auto s = std::min( m_setRangePopup.min, m_setRangePopup.max );
         const auto e = std::max( m_setRangePopup.min, m_setRangePopup.max );
-        if( ImGui::Selectable( ICON_FA_MAGNIFYING_GLASS " Limit find zone time range" ) )
+        TextDisabledUnformatted( ICON_FA_RULER " Set time range for:" );
+        ImGui::Indent();
+        for( auto& r : m_ranges )
         {
-            m_findZone.range.active = true;
-            m_findZone.range.min = s;
-            m_findZone.range.max = e;
+            if( ImGui::Selectable( r.name ) )
+            {
+                r.range->active = true;
+                r.range->min = s;
+                r.range->max = e;
+                m_showRanges = true;
+            }
         }
-        if( ImGui::Selectable( ICON_FA_ARROW_UP_WIDE_SHORT " Limit statistics time range" ) )
-        {
-            m_statRange.active = true;
-            m_statRange.min = s;
-            m_statRange.max = e;
-        }
-        if( ImGui::Selectable( ICON_FA_FIRE_FLAME_CURVED " Limit flame time range" ) )
-        {
-            m_flameRange.active = true;
-            m_flameRange.min = s;
-            m_flameRange.max = e;
-        }
-        if( ImGui::Selectable( ICON_FA_HOURGLASS_HALF " Limit wait stacks range" ) )
-        {
-            m_waitStackRange.active = true;
-            m_waitStackRange.min = s;
-            m_waitStackRange.max = e;
-        }
-        if( ImGui::Selectable( ICON_FA_MEMORY " Limit memory range" ) )
-        {
-            m_memInfo.range.active = true;
-            m_memInfo.range.min = s;
-            m_memInfo.range.max = e;
-        }
+        ImGui::Unindent();
         ImGui::Separator();
         if( ImGui::Selectable( ICON_FA_NOTE_STICKY " Add annotation" ) )
         {
@@ -1472,6 +1486,7 @@ bool View::Save( const char* fn, FileCompression comp, int zlevel, bool buildDic
     if( !f ) return false;
 
     m_userData.StateShouldBePreserved();
+    m_userData.SetFilePath( fn );
     m_saveThreadState.store( SaveThreadState::Saving, std::memory_order_relaxed );
     m_saveThread = std::thread( [this, f{std::move( f )}, buildDict] {
         Worker::MainThreadDataLockGuard lock = m_worker.ObtainLockForMainThread();
@@ -1526,11 +1541,18 @@ void View::AddLlmQuery( const char* query )
 #endif
 }
 
-void View::ViewCallstack( uint32_t callstack, uint32_t thread )
+void View::ViewCallstack( uint32_t callstack, uint32_t thread, int64_t waitTime, const char* waitReason, const char* waitReasonCode, const char* waitState, const char* waitStateCode )
 {
     m_callstackView = {
         .id = callstack,
-        .thread = thread
+        .thread = thread,
+        .wait = {
+            .time = waitTime,
+            .reason = waitReason,
+            .reasonCode = waitReasonCode,
+            .state = waitState,
+            .stateCode = waitStateCode
+        }
     };
 }
 

@@ -1,11 +1,14 @@
 #include <algorithm>
 #include <math.h>
 
+#include "TracyColor.hpp"
 #include "TracyImGui.hpp"
 #include "TracyMouse.hpp"
 #include "TracyPrint.hpp"
 #include "TracyTexture.hpp"
 #include "TracyView.hpp"
+
+#include "tracy_pdqsort.h"
 
 namespace tracy
 {
@@ -160,7 +163,7 @@ void View::DrawTimelineFrames( const FrameData& frames )
                     {
                         m_showPlayback = true;
                         m_playback.pause = true;
-                        SetPlaybackFrame( frames.frames[i].frameImage );
+                        SetPlaybackFrame( frames.frames[i].frameImage, true );
                     }
                 }
                 ImGui::EndTooltip();
@@ -316,6 +319,228 @@ void View::DrawTimelineFrames( const FrameData& frames )
         {
             m_frames = &frames;
         }
+    }
+}
+
+struct SectionEntry
+{
+    uint32_t idx;
+    int64_t len;
+    int64_t start;
+    int64_t end;
+};
+
+struct SectionRow
+{
+    std::vector<uint32_t> items;
+    std::vector<std::pair<int64_t, int64_t>> available;
+};
+
+void View::DrawTimelineSections()
+{
+    auto& data = m_worker.GetSections();
+    if( data.empty() ) return;
+
+    uint32_t idx = 0;
+    std::vector<SectionEntry> visible;
+    visible.reserve( data.size() );
+    for( auto& v : data )
+    {
+        const auto start = v.start.Val();
+        const auto end = v.end.IsNonNegative() ? v.end.Val() : m_worker.GetLastTime();
+        if( end - start > 0 && start < m_vd.zvEnd && end > m_vd.zvStart ) visible.emplace_back( SectionEntry {
+            .idx = idx,
+            .len = end - start,
+            .start = std::max( start, m_vd.zvStart ),
+            .end = std::min( end, m_vd.zvEnd )
+        } );
+        idx++;
+    }
+    if( visible.empty() ) return;
+
+    pdqsort( visible.begin(), visible.end(), []( const SectionEntry& a, const SectionEntry& b ) { return a.len > b.len; } );
+
+    std::vector<SectionRow> rows;
+    for( auto& e : visible )
+    {
+        bool found = false;
+        for( auto& row : rows )
+        {
+            for( size_t i=0; i<row.available.size(); i++ )
+            {
+                const auto gap = row.available[i];
+                if( gap.first <= e.start && gap.second >= e.end )
+                {
+                    row.available.erase( row.available.begin() + i );
+                    if( gap.second > e.end ) row.available.insert( row.available.begin() + i, { e.end, gap.second } );
+                    if( gap.first < e.start ) row.available.insert( row.available.begin() + i, { gap.first, e.start } );
+                    row.items.push_back( e.idx );
+                    found = true;
+                    break;
+                }
+            }
+            if( found ) break;
+        }
+        if( !found )
+        {
+            rows.emplace_back();
+            auto& row = rows.back();
+            if( m_vd.zvStart < e.start ) row.available.emplace_back( m_vd.zvStart, e.start );
+            if( m_vd.zvEnd > e.end ) row.available.emplace_back( e.end, m_vd.zvEnd );
+            row.items.push_back( e.idx );
+        }
+    }
+
+    const auto wpos = ImGui::GetCursorScreenPos();
+    const auto dpos = wpos + ImVec2( 0.5f, 0.5f );
+    const auto w = ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize;
+    auto draw = ImGui::GetWindowDrawList();
+    const auto ty = ImGui::GetTextLineHeight();
+    const auto ostep = ty + 1;
+
+    ImGui::InvisibleButton( "##sections", ImVec2( w, ostep * rows.size() ) );
+    const bool hover = ImGui::IsItemHovered();
+
+    const auto timespan = m_vd.zvEnd - m_vd.zvStart;
+    const auto pxns = w / double( timespan );
+    const auto nspx = 1.0 / pxns;
+    const auto MinVisNs = int64_t( round( GetScale() * MinVisSize * nspx ) );
+
+    int rowidx = 0;
+    for( auto& row : rows )
+    {
+        const auto offset = ostep * rowidx;
+
+        pdqsort_branchless( row.items.begin(), row.items.end(), [&data]( uint32_t a, uint32_t b ) { return data[a].start.Val() < data[b].start.Val(); } );
+
+        size_t i = 0;
+        while( i < row.items.size() )
+        {
+            auto& v = data[row.items[i]];
+            const auto start = v.start.Val();
+            const auto end = v.end.IsNonNegative() ? v.end.Val() : m_worker.GetLastTime();
+            const auto zsz = end - start;
+
+            if( zsz < MinVisNs )
+            {
+                uint32_t count = 1;
+                auto groupEnd = end;
+                size_t j = i + 1;
+                while( j < row.items.size() )
+                {
+                    auto& nv = data[row.items[j]];
+                    const auto nStart = nv.start.Val();
+                    const auto nEnd = nv.end.IsNonNegative() ? nv.end.Val() : m_worker.GetLastTime();
+                    if( ( nEnd - nStart ) >= MinVisNs ) break;
+                    if( nStart > groupEnd + MinVisNs ) break;
+                    groupEnd = nEnd;
+                    ++count;
+                    ++j;
+                }
+
+                const auto pr0 = ( start - m_vd.zvStart ) * pxns;
+                const auto pr1 = ( groupEnd - m_vd.zvStart ) * pxns;
+                const auto px0 = std::max( pr0, -10.0 );
+                const auto px1 = std::min( std::max( pr1, px0 + MinVisSize ), double( w + 10 ) );
+                constexpr uint32_t color = 0xFF666666;
+                const auto darkColor = DarkenColor( color );
+
+                draw->AddRectFilled( wpos + ImVec2( px0, offset ), wpos + ImVec2( px1, offset + ty ), color );
+                DrawZigZag( draw, wpos + ImVec2( 0, offset + ty/2 ), std::max( px0, -10.0 ), std::min( std::max( pr1, px0 + MinVisSize ), double( w + 10 ) ), ty/4, darkColor );
+
+                const auto tmp = RealToString( count );
+                const auto tsz = ImGui::CalcTextSize( tmp );
+                const auto tpx0 = std::max( px0, 0.0 );
+                if( tsz.x < px1 - tpx0 )
+                {
+                    const auto x = tpx0 + ( px1 - tpx0 - tsz.x ) / 2;
+                    DrawTextContrast( draw, wpos + ImVec2( x, offset ), 0xFF4488DD, tmp );
+                }
+
+                if( hover && ImGui::IsMouseHoveringRect( wpos + ImVec2( std::max( px0, -10.0 ), offset ), wpos + ImVec2( std::min( std::max( pr1, px0 + MinVisSize ), double( w + 10 ) ), offset + ty + 1 ) ) )
+                {
+                    ImGui::BeginTooltip();
+                    if( count > 1 )
+                    {
+                        TextFocused( "Sections too small to display:", RealToString( count ) );
+                        ImGui::Separator();
+                        TextFocused( "Execution time:", TimeToString( groupEnd - start ) );
+                        ImGui::EndTooltip();
+
+                        if( IsMouseClickReleased( 1 ) ) m_setRangePopup = RangeSlim { start, groupEnd, true };
+                        if( IsMouseClicked( 2 ) ) ZoomToRange( start, groupEnd );
+                    }
+                    else
+                    {
+                        const char* name = m_worker.GetString( v.text );
+                        ImGui::TextUnformatted( name );
+                        ImGui::Separator();
+                        TextFocused( "Execution time:", TimeToString( end - start ) );
+                        TextFocused( "Time from start of program:", TimeToStringExact( start ) );
+                        ImGui::EndTooltip();
+
+                        if( IsMouseClickReleased( 1 ) ) m_setRangePopup = RangeSlim { start, end, true };
+                        if( IsMouseClicked( 2 ) ) ZoomToRange( start, end );
+                    }
+                }
+
+                i = j;
+            }
+            else
+            {
+                const auto pr0 = ( start - m_vd.zvStart ) * pxns;
+                const auto pr1 = ( end - m_vd.zvStart ) * pxns;
+                const auto px0 = std::max( pr0, -10.0 );
+                const auto px1 = std::max( { std::min( pr1, double( w + 10 ) ), px0 + pxns * 0.5, px0 + MinVisSize } );
+
+                const char* name = m_worker.GetString( v.text );
+                const auto color = GetHsvColor( charutil::hash( name ), 0 );
+
+                draw->AddRectFilled( wpos + ImVec2( px0, offset ), wpos + ImVec2( px1, offset + ty ), color );
+                const auto darkColor = DarkenColor( color );
+                DrawLine( draw, dpos + ImVec2( px0, offset + ty ), dpos + ImVec2( px0, offset ), dpos + ImVec2( px1-1, offset ), HighlightColor( color ) );
+                DrawLine( draw, dpos + ImVec2( px0, offset + ty ), dpos + ImVec2( px1-1, offset + ty ), dpos + ImVec2( px1-1, offset ), darkColor );
+
+                const auto tsz = ImGui::CalcTextSize( name );
+                const auto tpx0 = std::max( px0, 0.0 );
+                if( tsz.x < px1 - tpx0 )
+                {
+                    const auto x = pr0 + ( pr1 - pr0 - tsz.x ) / 2;
+                    if( x < 0 || x > w - tsz.x )
+                    {
+                        ImGui::PushClipRect( wpos + ImVec2( tpx0, offset ), wpos + ImVec2( px1, offset + tsz.y * 2 ), true );
+                        DrawTextContrast( draw, wpos + ImVec2( std::max( tpx0, std::min( double( w - tsz.x ), x ) ), offset ), 0xFFFFFFFF, name );
+                        ImGui::PopClipRect();
+                    }
+                    else
+                    {
+                        DrawTextContrast( draw, wpos + ImVec2( x, offset ), 0xFFFFFFFF, name );
+                    }
+                }
+                else
+                {
+                    ImGui::PushClipRect( wpos + ImVec2( tpx0, offset ), wpos + ImVec2( px1, offset + tsz.y * 2 ), true );
+                    DrawTextContrast( draw, wpos + ImVec2( tpx0, offset ), 0xFFFFFFFF, name );
+                    ImGui::PopClipRect();
+                }
+
+                if( hover && ImGui::IsMouseHoveringRect( wpos + ImVec2( px0, offset ), wpos + ImVec2( px1, offset + ty + 1 ) ) )
+                {
+                    ImGui::BeginTooltip();
+                    ImGui::TextUnformatted( name );
+                    ImGui::Separator();
+                    TextFocused( "Execution time:", TimeToString( end - start ) );
+                    TextFocused( "Time from start of program:", TimeToStringExact( start ) );
+                    ImGui::EndTooltip();
+
+                    if( IsMouseClickReleased( 1 ) ) m_setRangePopup = RangeSlim { start, end, true };
+                    if( IsMouseClicked( 2 ) ) ZoomToRange( start, end );
+                }
+
+                ++i;
+            }
+        }
+        rowidx++;
     }
 }
 

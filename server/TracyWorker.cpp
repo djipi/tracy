@@ -726,6 +726,13 @@ Worker::Worker( FileRead& f, EventType::Type eventMask, bool bgTasks, bool allow
     m_data.framesBase = m_data.frames.Data()[0];
     assert( m_data.framesBase->name == 0 );
 
+    if( fileVer >= FileVersion( 0, 13, 4 ) )
+    {
+        f.Read( sz );
+        m_data.sections.reserve_exact( sz, m_slab );
+        f.Read( m_data.sections.data(), sz * sizeof( SectionItem ) );
+    }
+
     unordered_flat_map<uint64_t, const char*> pointerMap;
 
     f.Read( sz );
@@ -3137,6 +3144,7 @@ void Worker::DispatchFailure( const QueueItem& ev, const char*& ptr )
     }
     else
     {
+        uint8_t sz8;
         uint16_t sz;
         switch( ev.hdr.type )
         {
@@ -3144,6 +3152,7 @@ void Worker::DispatchFailure( const QueueItem& ev, const char*& ptr )
             ptr += sizeof( QueueHeader );
             memcpy( &sz, ptr, sizeof( sz ) );
             ptr += sizeof( sz );
+            sz += ProtocolOffset8Bit;
             AddSingleStringFailure( ptr, sz );
             ptr += sz;
             break;
@@ -3151,8 +3160,23 @@ void Worker::DispatchFailure( const QueueItem& ev, const char*& ptr )
             ptr += sizeof( QueueHeader );
             memcpy( &sz, ptr, sizeof( sz ) );
             ptr += sizeof( sz );
+            sz += ProtocolOffset8Bit;
             AddSecondString( ptr, sz );
             ptr += sz;
+            break;
+        case QueueType::SingleStringData8:
+            ptr += sizeof( QueueHeader );
+            memcpy( &sz8, ptr, sizeof( sz8 ) );
+            ptr += sizeof( sz8 );
+            AddSingleStringFailure( ptr, sz8 );
+            ptr += sz8;
+            break;
+        case QueueType::SecondStringData8:
+            ptr += sizeof( QueueHeader );
+            memcpy( &sz8, ptr, sizeof( sz8 ) );
+            ptr += sizeof( sz8 );
+            AddSecondString( ptr, sz8 );
+            ptr += sz8;
             break;
         default:
             ptr += QueueDataSize[ev.hdr.idx];
@@ -3337,6 +3361,7 @@ bool Worker::DispatchProcess( const QueueItem& ev, const char*& ptr )
     }
     else
     {
+        uint8_t sz8;
         uint16_t sz;
         switch( ev.hdr.type )
         {
@@ -3344,6 +3369,7 @@ bool Worker::DispatchProcess( const QueueItem& ev, const char*& ptr )
             ptr += sizeof( QueueHeader );
             memcpy( &sz, ptr, sizeof( sz ) );
             ptr += sizeof( sz );
+            sz += ProtocolOffset8Bit;
             AddSingleString( ptr, sz );
             ptr += sz;
             return true;
@@ -3351,8 +3377,23 @@ bool Worker::DispatchProcess( const QueueItem& ev, const char*& ptr )
             ptr += sizeof( QueueHeader );
             memcpy( &sz, ptr, sizeof( sz ) );
             ptr += sizeof( sz );
+            sz += ProtocolOffset8Bit;
             AddSecondString( ptr, sz );
             ptr += sz;
+            return true;
+        case QueueType::SingleStringData8:
+            ptr += sizeof( QueueHeader );
+            memcpy( &sz8, ptr, sizeof( sz8 ) );
+            ptr += sizeof( sz8 );
+            AddSingleString( ptr, sz8 );
+            ptr += sz8;
+            return true;
+        case QueueType::SecondStringData8:
+            ptr += sizeof( QueueHeader );
+            memcpy( &sz8, ptr, sizeof( sz8 ) );
+            ptr += sizeof( sz8 );
+            AddSecondString( ptr, sz8 );
+            ptr += sz8;
             return true;
         default:
             ptr += QueueDataSize[ev.hdr.idx];
@@ -4822,6 +4863,12 @@ bool Worker::Process( const QueueItem& ev )
         break;
     case QueueType::FiberLeave:
         ProcessFiberLeave( ev.fiberLeave );
+        break;
+    case QueueType::SectionEnter:
+        ProcessSectionEnter( ev.sectionEnter );
+        break;
+    case QueueType::SectionLeave:
+        ProcessSectionLeave( ev.sectionLeave );
         break;
     default:
         assert( false );
@@ -7221,7 +7268,7 @@ void Worker::ProcessHwSampleBranchMiss( const QueueHwSample& ev )
 void Worker::ProcessParamSetup( const QueueParamSetup& ev )
 {
     CheckString( ev.name );
-    m_params.push_back( Parameter { ev.idx, StringRef( StringRef::Ptr, ev.name ), bool( ev.isBool ), ev.val } );
+    m_params.push_back( Parameter { ev.idx, StringRef( StringRef::Ptr, ev.name ), ParameterType( ev.type ), ev.val } );
 }
 
 void Worker::ProcessSourceCodeNotAvailable( const QueueSourceCodeNotAvailable& ev )
@@ -7335,6 +7382,60 @@ void Worker::ProcessFiberLeave( const QueueFiberLeave& ev )
 
     td->fiber = nullptr;
 }
+
+void Worker::ProcessSectionEnter( const QueueSectionEnter& ev )
+{
+    const auto t = TscTime( RefTime( m_refTimeThread, ev.time ) );
+    if( m_data.lastTime < t ) m_data.lastTime = t;
+    const auto text = GetSingleStringIdx();
+
+    const auto ait = m_data.sectionsActive.find( ev.id );
+    if( ait != m_data.sectionsActive.end() )
+    {
+        m_data.sectionsActive.erase( ait );
+        auto it = std::ranges::find_if( m_data.sectionsPending, [id = ev.id]( const auto& s ) { return s.start.Val() == id; } );
+        assert( it != m_data.sectionsPending.end() );
+        assert( !it->text.Active() );
+        it->start.SetVal( t );
+        it->text.SetIdx( text );
+        m_data.sections.push_back( *it );
+        m_data.sectionsPending.erase( it );
+    }
+    else
+    {
+        m_data.sections.push_back( SectionItem {
+            .start = t,
+            .end = -int64_t( ev.id ),
+            .text = StringIdx( text )
+        } );
+        m_data.sectionsActive.insert( ev.id );
+    }
+}
+
+void Worker::ProcessSectionLeave( const QueueSectionLeave& ev )
+{
+    const auto t = TscTime( RefTime( m_refTimeThread, ev.time ) );
+    if( m_data.lastTime < t ) m_data.lastTime = t;
+
+    const auto ait = m_data.sectionsActive.find( ev.id );
+    if( ait != m_data.sectionsActive.end() )
+    {
+        m_data.sectionsActive.erase( ait );
+        auto it = std::ranges::find_if( m_data.sections, [id = -int64_t( ev.id )]( const auto& s ) { return s.end.Val() == id; } );
+        assert( it != m_data.sections.end() );
+        assert( it->end.Val() < 0 );
+        it->end.SetVal( t );
+    }
+    else
+    {
+        m_data.sectionsPending.push_back( SectionItem {
+            .start = ev.id,
+            .end = t
+        } );
+        m_data.sectionsActive.insert( ev.id );
+    }
+}
+
 
 void Worker::MemAllocChanged( MemData& memdata, int64_t time )
 {
@@ -7648,15 +7749,21 @@ void Worker::UpdateSampleStatisticsPostponed( decltype(Worker::DataBlock::postpo
 
 void Worker::UpdateSampleStatisticsImpl( const CallstackFrameData** frames, uint16_t framesCount, uint32_t count, const VarArray<CallstackFrameId>& cs )
 {
+    thread_local unordered_flat_set<uint64_t> seen;
+    seen.clear();
+
     const auto fexcl = frames[0];
     const auto fxsz = fexcl->size;
     const auto& frame0 = fexcl->data[0];
     auto sym0 = m_data.symbolStats.find( frame0.symAddr );
     if( sym0 == m_data.symbolStats.end() ) sym0 = m_data.symbolStats.emplace( frame0.symAddr, SymbolStats { 0, 0 } ).first;
     sym0->second.excl += count;
+    sym0->second.incl += count;
+    seen.emplace( frame0.symAddr );
     for( uint8_t f=1; f<fxsz; f++ )
     {
         const auto& frame = fexcl->data[f];
+        if( !seen.emplace( frame.symAddr ).second ) continue;
         auto sym = m_data.symbolStats.find( frame.symAddr );
         if( sym == m_data.symbolStats.end() ) sym = m_data.symbolStats.emplace( frame.symAddr, SymbolStats { 0, 0 } ).first;
         sym->second.incl += count;
@@ -7668,6 +7775,7 @@ void Worker::UpdateSampleStatisticsImpl( const CallstackFrameData** frames, uint
         for( uint8_t f=0; f<fsz; f++ )
         {
             const auto& frame = fincl->data[f];
+            if( !seen.emplace( frame.symAddr ).second ) continue;
             auto sym = m_data.symbolStats.find( frame.symAddr );
             if( sym == m_data.symbolStats.end() ) sym = m_data.symbolStats.emplace( frame.symAddr, SymbolStats { 0, 0 } ).first;
             sym->second.incl += count;
@@ -8131,6 +8239,10 @@ void Worker::Write( FileWrite& f, bool fiDict )
             }
         }
     }
+
+    sz = m_data.sections.size();
+    f.Write( &sz, sizeof( sz ) );
+    f.Write( m_data.sections.data(), sz * sizeof( SectionItem ) );
 
     sz = m_data.stringData.size();
     f.Write( &sz, sizeof( sz ) );

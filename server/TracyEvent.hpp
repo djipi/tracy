@@ -683,6 +683,13 @@ struct ChildSample
     uint64_t addr;
 };
 
+
+struct SectionItem
+{
+    Int48 start, end;
+    StringIdx text;
+};
+
 #pragma pack( pop )
 
 
@@ -849,11 +856,18 @@ struct CpuThreadData
 };
 
 
+enum class ParameterType
+{
+    Integer,
+    Boolean,
+    Trigger
+};
+
 struct Parameter
 {
     uint32_t idx;
     StringRef name;
-    bool isBool;
+    ParameterType type;
     int32_t val;
 };
 

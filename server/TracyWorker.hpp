@@ -407,6 +407,10 @@ private:
         bool hasBranchRetirement = false;
 
         unordered_flat_map<uint64_t, uint64_t> fiberToThreadMap;
+
+        Vector<SectionItem> sections;
+        Vector<SectionItem> sectionsPending;
+        unordered_flat_set<uint64_t> sectionsActive;
     };
 
     struct MbpsBlock
@@ -569,6 +573,7 @@ public:
     const unordered_flat_map<uint64_t, MemData*>& GetMemNameMap() const { return m_data.memNameMap; }
     const Vector<short_ptr<FrameImage>>& GetFrameImages() const { return m_data.frameImage; }
     const Vector<StringRef>& GetAppInfo() const { return m_data.appInfo; }
+    const Vector<SectionItem>& GetSections() const { return m_data.sections; }
 
     const VarArray<CallstackFrameId>& GetCallstack( uint32_t idx ) const { return *m_data.callstackPayload[idx]; }
     const CallstackFrameData* GetCallstackFrame( const CallstackFrameId& ptr ) const;
@@ -846,6 +851,8 @@ private:
     tracy_force_inline void ProcessThreadGroupHint( const QueueThreadGroupHint& ev );
     tracy_force_inline void ProcessFiberEnter( const QueueFiberEnter& ev );
     tracy_force_inline void ProcessFiberLeave( const QueueFiberLeave& ev );
+    tracy_force_inline void ProcessSectionEnter( const QueueSectionEnter& ev );
+    tracy_force_inline void ProcessSectionLeave( const QueueSectionLeave& ev );
 
     tracy_force_inline ZoneEvent* AllocZoneEvent();
     tracy_force_inline void ProcessZoneBeginImpl( ZoneEvent* zone, const QueueZoneBegin& ev );

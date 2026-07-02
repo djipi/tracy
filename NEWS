@@ -5,9 +5,16 @@ here.
 vx.xx.x (2026-xx-xx)
 --------------------
 
+- API break: removed "secure" variants of memory alloc and free macros. The
+  secure code path is now always enabled. Migrate by removing "Secure" from
+  the macros you use, e.g. TracySecureAlloc(...) -> TracyAlloc(...).
 - Added tracy-capture-daemon for automated multi-client trace capture.
 - Added tracy-merge utility for combining multiple trace files into one.
 - Added support for Windows on ARM64 with MSVC.
+- Added support for WebGPU.
+- Trace-specific settings storage has been completely overhauled. It is now
+  possible to make the settings sidecar file public, saved next to the trace
+  file.
 - External frames are now omitted in the single-line call stack list visible
   in messages list, or in memory allocation info window.
 - External frames are now hidden by default in various contexts where they
@@ -15,7 +22,14 @@ vx.xx.x (2026-xx-xx)
   - Flame graph window.
   - Call stack window.
   - Statistics window (sampling mode).
+- Wait stacks have a separate setting for external frames, as you would
+  typically want to know what caused the wait state, which can be inferred
+  from the external code.
 - External frames are now dimmed out in call stacks in various parts of UI.
+- Sample markers on the timeline are now colored according to sample type:
+  - Green for samples in the profiled program,
+  - Blue for samples in external code,
+  - Red for samples in kernel.
 - Single-line call stacks now have ellipsis at the end, if there are frames
   remaining.
 - System tracing on Windows has been refactored to be more robust.
@@ -76,8 +90,10 @@ vx.xx.x (2026-xx-xx)
   - Entry call stacks can be now attached (previously it was only regular
     call stacks).
   - Crash call stack attachments are now annotated with crash info.
+  - Wait stack attachments now contain wait metadata.
   - Source code can be attached (also with execution costs in symbol view).
   - Zone histogram data can be attached for analysis.
+- Added MCP server.
 - Markdown renderer improvements.
   - Tables are now properly rendered.
   - Tasklist rendering has been implemented.
@@ -101,6 +117,7 @@ vx.xx.x (2026-xx-xx)
   locations won't be fixed.
 - Call stack window will now display notification if viewing a crash call
   stack.
+- Call stack window will now show a proper label if viewing a wait stack.
 - Removal of Tracy crash handler stack from the reported crash call stack
   should now work again on Linux.
 - In disassembly line view, source file names are now displayed instead of
@@ -147,8 +164,13 @@ vx.xx.x (2026-xx-xx)
   - There is now chapter tree and the manual contents are displayed section
     by section.
   - Links to chapters are now properly working.
-  - The "bclogo" blocks are now correctly processed.
+  - The "bclogo" blocks are now correctly processed and displayed as proper
+    admonitions.
   - The font awesome icons now show as in the rest of the UI.
+  - Footnotes are now rendered as proper footnotes.
+  - Tables are now rendered as intended.
+  - LaTeX math is now converted to readable form.
+  - Added a button to download the full PDF manual to the user manual window.
 - Call stack window will now show the thread viewed call stack originates
   from (if possible).
 - "Visible threads" checkboxes in messages, flame graph and wait stacks
@@ -172,6 +194,52 @@ vx.xx.x (2026-xx-xx)
 - Fixed NVCC builds.
 - Fixed possible lockups in Vulkan timer calibration loop.
 - The flame graph view now supports zooming in and panning with the mouse.
+- General application crash information polish in the profiler UI.
+- The achievements system has been converted to use markdown renderer.
+- Offline symbol resolution with the update utility now supports custom
+  addr2line-compatible tools via -a and -A command line parameters.
+  Additionally, it is now possible to reset all call stack frame symbols to
+  unresolved with the -R parameter.
+- Periodic recalibration of the clock drift in OpenGL contexts can be enabled
+  with the TRACY_OPENGL_AUTO_CALIBRATION compilation define. Note that this
+  requires a full CPU/GPU sync on each calibration event. These events will
+  not fire more often than once every second.
+- Additional hardening of OpenGL tracing.
+- Added missing C API for shared locks.
+- Implemented semi-unique, nonsense random name generator.
+  - Can be used to set a trace description.
+  - Will be used to provide default description for newly added annotations.
+- Polished look and feel of annotation regions on the timeline.
+- Annotations can now be hidden.
+- It is now possible to create annotations from time range limits.
+- Expanded available tests.
+  - The previously existing "test" program now lives in "tests/tracy".
+  - The tests directory also contains some repro cases for solved problems.
+- Expanded examples showing how to use the profiler.
+  - Includes "Dyna.net", a small 2D game that is a variation of Bomberman.
+- Made numeric input field for trace parameters usable again.
+- Added new type of trace parameter that exposes a trigger button.
+- Added "sections" feature for marking high-level sections of program
+  execution.
+  - For example, a game with multiple levels may have each of the levels
+    marked as a section.
+  - Each section is a distinct region not restricted by other sections.
+  - Multiple sections can overlap.
+- Find zone window now also displays coefficient of variation, in addition
+  to standard deviation.
+- Moved frame statistics from trace information window to its own window.
+  - Added various statistical data to bring frame statistics up to par with
+    the find zone window.
+  - Added a new time range limit for frame statistics. This accompanies the
+    previously existing "limit to view" option.
+- More robust statistics for functions that recursively call themselves.
+- General uplift of the compare traces window.
+  - Added all the statistical parameters displayed in find zone window that
+    were missing here.
+  - Frame comparison now also displays FPS values.
+  - The "more" and "less" indicators are now color coded to show their
+    importance. The amount of color these keywords are printed with is now
+    dependant on how divergent the numeric values are.
 
 
 v0.13.1 (2025-12-11)
@@ -813,8 +881,14 @@ v0.8.0 (2022-03-28)
   trees.
 - Updated project build files to MSVC 2022.
 - Call stack tooltips now also show the executable image name.
-- Playback frames can be now changed by interacting with the frame image
-  slider using the mouse wheel.
+- Frame image playback improvements.
+  - Frames can be now changed by interacting with the frame image slider
+    using the mouse wheel.
+  - Playback can be looped.
+  - The range of played frame images can be limited, either manually, or
+    copying annotations time range or time range limit. There's an "require
+    frame coverage" option to only include frames that are at least 75%
+    within the source region.
 - Signal used to handle crashes on Linux can be now redefined.
 - Various DPI scaling improvements.
 - User interface can be now scaled in run time.

@@ -39,7 +39,7 @@
 #include "profiler/TracyTexture.hpp"
 #include "profiler/TracyView.hpp"
 #include "profiler/TracyWeb.hpp"
-#include "profiler/IconsFontAwesome6.h"
+#include "profiler/IconsFontAwesome7.h"
 #include "../../server/tracy_pdqsort.h"
 #include "../../server/tracy_robin_hood.h"
 #include "../../server/TracyFileHeader.hpp"
@@ -177,8 +177,8 @@ static void SetupDPIScale()
     auto& style = ImGui::GetStyle();
     style = ImGuiStyle();
     ImGui::StyleColorsDark();
-    style.WindowBorderSize = 1.f * scale;
-    style.FrameBorderSize = 1.f * scale;
+    style.WindowBorderSize = 1.f;
+    style.FrameBorderSize = 1.f;
     style.FrameRounding = 5.f;
     style.Colors[ImGuiCol_ScrollbarBg] = ImVec4( 1, 1, 1, 0.03f );
     style.Colors[ImGuiCol_Header] = ImVec4(0.26f, 0.59f, 0.98f, 0.25f);
@@ -361,7 +361,7 @@ int main( int argc, char** argv )
         view.store( std::make_shared<tracy::View>( RunOnMainThread, connectTo, port, SetWindowTitleCallback, SetupScaleCallback, AttentionCallback, s_achievements ), std::memory_order_release );
     }
 
-    tracy::Fileselector::Init();
+    tracy::Fileselector::Init( backend.HandleType(), backend.Handle() );
     s_isElevated = IsElevated();
 
     backend.Show();
@@ -1466,9 +1466,17 @@ Would you like to enable achievements?
                     {
                         ImGui::Columns( 2 );
                         ImGui::SetColumnWidth( 0, 300 * dpiScale );
+                        ImGui::BeginChild( "##achievementtoc", ImVec2( 0, 0 ), ImGuiChildFlags_AlwaysUseWindowPadding );
                         DrawAchievements( c->items );
+                        ImGui::EndChild();
                         ImGui::NextColumn();
-                        if( s_achievementItem ) s_achievementItem->description();
+                        ImGui::BeginChild( "##achievementtext", ImVec2( 0, 0 ), ImGuiChildFlags_AlwaysUseWindowPadding );
+                        if( s_achievementItem )
+                        {
+                            tracy::Markdown md( nullptr, nullptr );
+                            md.Print( s_achievementItem->text.c_str(), s_achievementItem->text.size() );
+                        }
+                        ImGui::EndChild();
                         ImGui::EndColumns();
                         ImGui::EndTabItem();
                     }

@@ -32,6 +32,24 @@ struct RangeSlim
     bool active = false;
 };
 
+struct RangeEntry
+{
+    Range* range;
+    uint32_t color;
+    const char* name;
+};
+
+enum class RangeId
+{
+    FindZone,
+    Statistics,
+    FlameGraph,
+    WaitStacks,
+    Memory,
+    FrameStatistics,
+    NUM
+};
+
 
 struct ViewData
 {
@@ -68,6 +86,7 @@ struct Annotation
     std::string text;
     Range range;
     uint32_t color;
+    bool visible = true;
 };
 
 struct SourceRegex

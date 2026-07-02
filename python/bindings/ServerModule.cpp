@@ -214,6 +214,20 @@ PYBIND11_MODULE( TracyServerBindings, m )
         return w.GetMessages().size();
     } )
 
+        // --- Sections ---
+        .def( "get_sections", []( const Worker& w ) {
+        py::list result;
+        for( auto& s : w.GetSections() )
+        {
+            py::dict d;
+            d["start"] = s.start.Val();
+            d["end"] = s.end.Val();
+            d["text"] = std::string( w.GetString( s.text ) );
+            result.append( d );
+        }
+        return result;
+    } )
+
         // --- Source locations / zones ---
         .def( "get_src_loc", []( const Worker& w, int16_t id ) {
         return w.GetSourceLocation( id );
@@ -1033,14 +1047,15 @@ PYBIND11_MODULE( TracyServerBindings, m )
         // --- GPU contexts ---
         .def( "get_gpu_contexts", []( const Worker& w ) {
         static const char* gpuTypeStr[] = {
-            "Invalid", "OpenGL", "Vulkan", "OpenCL", "Direct3D12", "Direct3D11", "Metal", "Custom", "CUDA", "Rocprof" };
+            "Invalid", "OpenGL", "Vulkan", "OpenCL", "Direct3D12", "Direct3D11", "Metal", "Custom", "CUDA", "Rocprof", "WebGPU" };
+        static size_t numTypes = sizeof(gpuTypeStr) / sizeof(gpuTypeStr[0]);
         std::vector<GpuContextSummary> result;
         for( const auto* ctx : w.GetGpuData() )
         {
             if( !ctx ) continue;
             const std::string name = ctx->name.Active() ? w.GetString( ctx->name ) : "";
             const uint8_t typeIdx = (uint8_t)ctx->type;
-            const char* typeStr = typeIdx < 10 ? gpuTypeStr[typeIdx] : "Unknown";
+            const char* typeStr = typeIdx < numTypes ? gpuTypeStr[typeIdx] : "Unknown";
             result.push_back( GpuContextSummary{
                 name, ctx->count, std::string( typeStr ), ctx->thread } );
         }

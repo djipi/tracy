@@ -1169,6 +1169,17 @@ void TracyLlm::SendMessage()
         if( msg.contains( "model" ) ) msg.erase( "model" );
     }
 
+    if( needSummary && chat.size() == 2 )
+    {
+        auto& content = chat[1]["content"].get_ref<std::string&>();
+        if( content.size() <= 30 )
+        {
+            needSummary = false;
+            std::lock_guard lock( m_chatLock );
+            m_summary = content;
+        }
+    }
+
     if( needSummary )
     {
         auto query = chat;

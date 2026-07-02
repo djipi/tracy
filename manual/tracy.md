@@ -3,7 +3,6 @@ bibliography:
 - tracy.bib
 ---
 
-::: titlepage
 Tracy Profiler
 
 The user manual
@@ -12,8 +11,7 @@ The user manual
 
 **Bartosz Taudul** [\<wolf@nereid.pl\>](mailto:wolf@nereid.pl)
 
-2026-05-30 <https://github.com/wolfpld/tracy>
-:::
+2026-06-29 <https://github.com/wolfpld/tracy>
 
 # Quick overview {#quick-overview .unnumbered}
 
@@ -23,7 +21,7 @@ Hello and welcome to the Tracy Profiler user manual! Here you will find all the 
 
 - Chapter [2](#firststeps), *First steps*, shows how you can integrate the profiler into your application and how to build the graphical user interface (section [2.3](#buildingserver)). At this point, you will be able to establish a connection from the profiler to your application.
 
-- Chapter [3](#client), *Client markup*, provides information on how to instrument your application, in order to retrieve useful profiling data. This includes a description of the C API (section [3.13](#capi)), which enables usage of Tracy in any programming language.
+- Chapter [3](#client), *Client markup*, provides information on how to instrument your application, in order to retrieve useful profiling data. This includes a description of the C API (section [3.14](#capi)), which enables usage of Tracy in any programming language.
 
 - Chapter [4](#capturing), *Capturing the data*, goes into more detail on how the profiling information can be captured and stored on disk.
 
@@ -71,7 +69,7 @@ Tracy is a real-time, nanosecond resolution *hybrid frame and sampling profiler*
 
 [^1]: Direct support is provided for C, C++, Lua, Python and Fortran integration. At the same time, third-party bindings to many other languages exist on the internet, such as Rust, Zig, C#, OCaml, Odin, etc.
 
-[^2]: All major graphic APIs: OpenGL, Vulkan, Direct3D 11/12, Metal, OpenCL.
+[^2]: All major graphics/compute APIs: OpenGL, Vulkan, Direct3D 11/12, Metal, OpenCL, CUDA, WebGPU.
 
 While Tracy can perform statistical analysis of sampled call stack data, just like other *statistical profilers* (such as VTune, perf, or Very Sleepy), it mainly focuses on manual markup of the source code. Such markup allows frame-by-frame inspection of the program execution. For example, you will be able to see exactly which functions are called, how much time they require, and how they interact with each other in a multi-threaded environment. In contrast, the statistical analysis may show you the hot spots in your code, but it cannot accurately pinpoint the underlying cause for semi-random frame stutter that may occur every couple of seconds.
 
@@ -95,11 +93,11 @@ The concept of Tracy being a real-time profiler may be explained in a couple of 
 
 It is hard to imagine how long a nanosecond is. One good analogy is to compare it with a measure of length. Let's say that one second is one meter (the average doorknob is at the height of one meter).
 
-One millisecond ($\frac{1}{1000}$ of a second) would be then the length of a millimeter. The average size of a red ant or the width of a pencil is 5 or 6 mm. A modern game running at 60 frames per second has only 16 ms to update the game world and render the entire scene.
+One millisecond (1/1000 of a second) would be then the length of a millimeter. The average size of a red ant or the width of a pencil is 5 or 6 mm. A modern game running at 60 frames per second has only 16 ms to update the game world and render the entire scene.
 
-One microsecond ($\frac{1}{1000}$ of a millisecond) in our comparison equals one micron. The diameter of a typical bacterium ranges from 1 to 10 microns. The diameter of a red blood cell or width of a strand of spider web silk is about 7 μm.
+One microsecond (1/1000 of a millisecond) in our comparison equals one micron. The diameter of a typical bacterium ranges from 1 to 10 microns. The diameter of a red blood cell or width of a strand of spider web silk is about 7 μm.
 
-And finally, one nanosecond ($\frac{1}{1000}$ of a microsecond) would be one nanometer. The modern microprocessor transistor gate, the width of the DNA helix, or the thickness of a cell membrane are in the range of 5 nm. In one ns the light can travel only 30 cm.
+And finally, one nanosecond (1/1000 of a microsecond) would be one nanometer. The modern microprocessor transistor gate, the width of the DNA helix, or the thickness of a cell membrane are in the range of 5 nm. In one ns the light can travel only 30 cm.
 
 Tracy can achieve single-digit nanosecond measurement resolution due to usage of hardware timing mechanisms on the x86 and ARM architectures[^4]. Other profilers may rely on the timers provided by the operating system, which do have significantly reduced resolution (about 300 ns -- 1 μs). This is enough to hide the subtle impact of cache access optimization, etc.
 
@@ -115,7 +113,7 @@ It is wrong to think so. Optimizing a function to execute in 430 ns, instead of
 
 [^6]: This is a real optimization case. The values are median function run times and do not reflect the real execution time, which explains the discrepancy in the total reported time.
 
-You also need to understand how timer precision is reflected in measurement errors. Take a look at figure [1](#timer). There you can see three discrete timer tick events, which increase the value reported by the timer by 300 ns. You can also see four readings of time ranges, marked $A_1$, $A_2$; $B_1$, $B_2$; $C_1$, $C_2$ and $D_1$, $D_2$.
+You also need to understand how timer precision is reflected in measurement errors. Take a look at figure [1](#timer). There you can see three discrete timer tick events, which increase the value reported by the timer by 300 ns. You can also see four readings of time ranges, marked A₁, A₂; B₁, B₂; C₁, C₂ and D₁, D₂.
 
 <figure id="timer" data-latex-placement="h">
 
@@ -124,11 +122,11 @@ You also need to understand how timer precision is reflected in measurement erro
 
 Now let's take a look at the timer readings.
 
-- The $A$ and $D$ ranges both take a very short amount of time (10 ns), but the $A$ range is reported as 300 ns, and the $D$ range is reported as 0 ns.
+- The A and D ranges both take a very short amount of time (10 ns), but the A range is reported as 300 ns, and the D range is reported as 0 ns.
 
-- The $B$ range takes a considerable amount of time (590 ns), but according to the timer readings, it took the same time (300 ns) as the short lived $A$ range.
+- The B range takes a considerable amount of time (590 ns), but according to the timer readings, it took the same time (300 ns) as the short lived A range.
 
-- The $C$ range (610 ns) is only 20 ns longer than the $B$ range, but it is reported as 900 ns, a 600 ns difference!
+- The C range (610 ns) is only 20 ns longer than the B range, but it is reported as 900 ns, a 600 ns difference!
 
 Here, you can see why using a high-precision timer is essential. While there is no escape from the measurement errors, a profiler can reduce their impact by increasing the timer accuracy.
 
@@ -147,7 +145,7 @@ Tracy aims to give you an understanding of the inner workings of a tight loop of
 
 ## Sampling profiler
 
-Tracy can periodically sample what the profiled application is doing, which provides detailed performance information at the source line/assembly instruction level. This can give you a deep understanding of how the processor executes the program. Using this information, you can get a coarse view at the call stacks, fine-tune your algorithms, or even 'steal' an optimization performed by one compiler and make it available for the others.
+Tracy can periodically sample what the profiled application is doing, which provides detailed performance information at the source line/assembly instruction level. This can give you a deep understanding of how the processor executes the program. Using this information, you can get a coarse view at the call stacks, fine-tune your algorithms, or even "steal" an optimization performed by one compiler and make it available for the others.
 
 On some platforms, it is possible to sample the hardware performance counters, which will give you information not only *where* your program is running slowly, but also *why*.
 
@@ -170,7 +168,7 @@ You may wonder why you should use Tracy when so many other profilers are availab
 
 - Tracy is free and open-source (BSD license), while RAD Telemetry costs about \$8000 per year.
 
-- Tracy provides out-of-the-box Lua bindings. It has been successfully integrated with other native and interpreted languages (Rust, Arma scripting language) using the C API (see chapter [3.13](#capi) for reference).
+- Tracy provides out-of-the-box Lua bindings. It has been successfully integrated with other native and interpreted languages (Rust, Arma scripting language) using the C API (see chapter [3.14](#capi) for reference).
 
 - Tracy has a wide variety of profiling options. For example, you can profile CPU, GPU, locks, memory allocations, context switches, and more.
 
@@ -190,20 +188,18 @@ You may wonder why you should use Tracy when so many other profilers are availab
 
 ## Performance impact {#perfimpact}
 
-Let's profile an example application to check how much slowdown is introduced by using Tracy. For this purpose we have used etcpak[^10]. The input data was a $16384 \times 16384$ pixels test image, and the $4 \times 4$ pixel block compression function was selected to be instrumented. The image was compressed on 12 parallel threads, and the timing data represents a mean compression time of a single image.
+Let's profile an example application to check how much slowdown is introduced by using Tracy. For this purpose we have used etcpak[^10]. The input data was a 16384 × 16384 pixels test image, and the 4 × 4 pixel block compression function was selected to be instrumented. The image was compressed on 12 parallel threads, and the timing data represents a mean compression time of a single image.
 
 [^10]: <https://github.com/wolfpld/etcpak>
 
 The results are presented in table [1](#PerformanceImpact). Dividing the average of run time differences (37.7 ms) by the count of captured zones per single image (16777216) shows us that the impact of profiling is only 2.25 ns per zone (this includes two events: start and end of a zone).
 
-::: {#PerformanceImpact}
-   **Mode**   **Zones (total)**   **Zones (single image)**   **Clean run**   **Profiling run**   **Difference**
-  ---------- ------------------- -------------------------- --------------- ------------------- ----------------
-     ETC1         201326592               16777216             110.9 ms          148.2 ms           +37.3 ms
-     ETC2         201326592               16777216             212.4 ms          250.5 ms           +38.1 ms
+| **Mode** | **Zones (total)** | **Zones (single image)** | **Clean run** | **Profiling run** | **Difference** |
+|:--:|:--:|:--:|:--:|:--:|:--:|
+| ETC1 | 201326592 | 16777216 | 110.9 ms | 148.2 ms | +37.3 ms |
+| ETC2 | 201326592 | 16777216 | 212.4 ms | 250.5 ms | +38.1 ms |
 
-  : Zone capture time cost.
-:::
+_Zone capture time cost._
 
 ### Assembly analysis
 
@@ -283,7 +279,7 @@ Tracy Profiler supports MSVC, GCC, and clang. You will need to use a reasonably 
 
 - QNX (x64)
 
-[^11]: Requires **\"OpenCL, OpenGL, and Vulkan Compatibility Pack\"** from Microsoft Store.
+[^11]: Requires **"OpenCL, OpenGL, and Vulkan Compatibility Pack"** from Microsoft Store.
 
 Moreover, the following platforms are not supported due to how secretive their owners are but were reported to be working after extending the system integration layer:
 
@@ -401,7 +397,7 @@ Here's a sample command to set up a build directory with profiling enabled. The 
 
 ### Short-lived applications
 
-In case you want to profile a short-lived program (for example, a compression utility that finishes its work in one second), set the `TRACY_NO_EXIT` environment variable to $1$. With this option enabled, Tracy will not exit until an incoming connection is made, even if the application has already finished executing. If your platform doesn't support an easy setup of environment variables, you may also add the `TRACY_NO_EXIT` define to your build configuration, which has the same effect.
+In case you want to profile a short-lived program (for example, a compression utility that finishes its work in one second), set the `TRACY_NO_EXIT` environment variable to 1. With this option enabled, Tracy will not exit until an incoming connection is made, even if the application has already finished executing. If your platform doesn't support an easy setup of environment variables, you may also add the `TRACY_NO_EXIT` define to your build configuration, which has the same effect.
 
 ### On-demand profiling {#ondemand}
 
@@ -426,11 +422,11 @@ The program name that is sent out in the broadcast messages can be customized by
 
 ### Client network interface
 
-By default, the Tracy client will listen on all network interfaces. If you want to restrict it to only listening on the localhost interface, define the `TRACY_ONLY_LOCALHOST` macro at compile-time, or set the `TRACY_ONLY_LOCALHOST` environment variable to $1$ at runtime.
+By default, the Tracy client will listen on all network interfaces. If you want to restrict it to only listening on the localhost interface, define the `TRACY_ONLY_LOCALHOST` macro at compile-time, or set the `TRACY_ONLY_LOCALHOST` environment variable to 1 at runtime.
 
 If you need to use a specific Tracy client address, such as QNX requires, define the `TRACY_CLIENT_ADDRESS` macro at compile-time as the desired string address.
 
-By default, the Tracy client will listen on IPv6 interfaces, falling back to IPv4 only if IPv6 is unavailable. If you want to restrict it to only listening on IPv4 interfaces, define the `TRACY_ONLY_IPV4` macro at compile-time, or set the `TRACY_ONLY_IPV4` environment variable to $1$ at runtime.
+By default, the Tracy client will listen on IPv6 interfaces, falling back to IPv4 only if IPv6 is unavailable. If you want to restrict it to only listening on IPv4 interfaces, define the `TRACY_ONLY_IPV4` macro at compile-time, or set the `TRACY_ONLY_IPV4` environment variable to 1 at runtime.
 
 ### Setup for multi-DLL projects
 
@@ -467,7 +463,7 @@ In the case of some programming environments, you may need to take extra steps t
 
 If you are using MSVC, you will need to disable the *Edit And Continue* feature, as it makes the compiler non-conformant to some aspects of the C++ standard. In order to do so, open the project properties and go to C/C++,General,Debug Information Format and make sure *Program Database for Edit And Continue (/ZI)* is *not* selected.
 
-For context, if you experience errors like \"error C2131: expression did not evaluate to a constant\", \"failure was caused by non-constant arguments or reference to a non-constant symbol\", and \"see usage of '`__LINE__Var`'\", chances are that your project has the *Edit And Continue* feature enabled.
+For context, if you experience errors like "error C2131: expression did not evaluate to a constant", "failure was caused by non-constant arguments or reference to a non-constant symbol", and "see usage of '`__LINE__Var`'", chances are that your project has the *Edit And Continue* feature enabled.
 
 #### Universal Windows Platform
 
@@ -522,15 +518,13 @@ The best way to run Tracy is on bare metal. Avoid profiling applications in virt
 
 Additionally, you can rebuild your application with the `TRACY_DISALLOW_HW_TIMER` define, which will disable usage of the hardware timer, even if it *appears* to be available. See table [2](#timeroptions) for details.
 
-::: {#timeroptions}
-                      **Scenario**                      **HW timer**    **Fallback timer**
-  ---------------------------------------------------- -------------- -----------------------
-                    Neither defined                         Used          Not compiled in
-              Only `TRACY_TIMER_FALLBACK`                   Used       Compiled in as backup
-   `TRACY_DISALLOW_HW_TIMER` + `TRACY_TIMER_FALLBACK`     Disabled             Used
+| **Scenario** | **HW timer** | **Fallback timer** |
+|:--:|:--:|:--:|
+| Neither defined | Used | Not compiled in |
+| Only `TRACY_TIMER_FALLBACK` | Used | Compiled in as backup |
+| `TRACY_DISALLOW_HW_TIMER` + `TRACY_TIMER_FALLBACK` | Disabled | Used |
 
-  : Timer options interaction
-:::
+_Timer options interaction_
 
 #### Docker on Linux
 
@@ -558,13 +552,13 @@ Inside that header, enable any subset of the hooks you need by defining the corr
 
 The available hooks are:
 
-- `TRACY_HAS_CUSTOM_THREAD_ID` $\rightarrow$ `tracy::PlatformGetThreadId()`. Required.
+- `TRACY_HAS_CUSTOM_THREAD_ID` → `tracy::PlatformGetThreadId()`. Required.
 
-- `TRACY_HAS_CUSTOM_USER_INFO` $\rightarrow$ `tracy::PlatformGetHostname()`, `tracy::PlatformGetUserLogin()`, `tracy::PlatformGetUserFullName()`.
+- `TRACY_HAS_CUSTOM_USER_INFO` → `tracy::PlatformGetHostname()`, `tracy::PlatformGetUserLogin()`, `tracy::PlatformGetUserFullName()`.
 
-- `TRACY_HAS_CUSTOM_SAFE_COPY` $\rightarrow$ `tracy::PlatformSafeMemcpy()`.
+- `TRACY_HAS_CUSTOM_SAFE_COPY` → `tracy::PlatformSafeMemcpy()`.
 
-- `TRACY_HAS_CUSTOM_ALLOCATOR` $\rightarrow$ `tracy::PlatformMalloc()`, `tracy::PlatformFree()`, `tracy::PlatformRealloc()`, `tracy::PlatformAllocatorInit()`, `tracy::PlatformAllocatorThreadInit()`, `tracy::PlatformAllocatorFinalize()`, `tracy::PlatformAllocatorThreadFinalize()`.
+- `TRACY_HAS_CUSTOM_ALLOCATOR` → `tracy::PlatformMalloc()`, `tracy::PlatformFree()`, `tracy::PlatformRealloc()`, `tracy::PlatformAllocatorInit()`, `tracy::PlatformAllocatorThreadInit()`, `tracy::PlatformAllocatorFinalize()`, `tracy::PlatformAllocatorThreadFinalize()`.
 
 Template files are provided in the repository ( `examples/CustomPlatform/CustomPlatform(.h|.cpp)` ). See `CustomPlatform.h` for the contract each `Platform*` function must satisfy (return values, threading guarantees, and footguns to avoid). Copy these files into your project, fill in the bodies for the hooks you enable, and point Tracy at the header.
 
@@ -577,7 +571,7 @@ These are the only categories currently exposed through the custom-platform mech
 
 ### Troubleshooting
 
-By default, Tracy's diagnostics will be sent as Message logs (section [3.7](#messagelog)) to the server. Setting the `TRACY_NO_INTERNAL_MESSAGE` define will disable this feature, but setting the `TRACY_VERBOSE` will make the client print advanced information about the detected features to the standard error output. By matching those debug prints to the source code, you might be able to uncover why some of the features are missing on your platform.
+By default, Tracy's diagnostics will be sent as Message logs (section [3.8](#messagelog)) to the server. Setting the `TRACY_NO_INTERNAL_MESSAGE` define will disable this feature, but setting the `TRACY_VERBOSE` will make the client print advanced information about the detected features to the standard error output. By matching those debug prints to the source code, you might be able to uncover why some of the features are missing on your platform.
 
 ### Changing network port
 
@@ -604,11 +598,11 @@ When using Tracy Profiler, keep in mind the following requirements:
 
 - If there are recursive zones at any point in a zone stack, each unique zone source location should not appear more than 255 times.
 
-- Profiling session cannot be longer than 1.6 days ($2^{47}$ ns). This also includes on-demand sessions.
+- Profiling session cannot be longer than 1.6 days (2⁴⁷ ns). This also includes on-demand sessions.
 
-- No more than 4 billion ($2^{32}$) memory free events may be recorded.
+- No more than 4 billion (2³²) memory free events may be recorded.
 
-- No more than 16 million ($2^{24}$) unique call stacks can be captured.
+- No more than 16 million (2²⁴) unique call stacks can be captured.
 
 [^18]: A source location is a place in the code, which is identified by source file name and line number, for example, when you markup a zone.
 
@@ -630,7 +624,7 @@ In a multitasking operating system, applications compete for system resources wi
 
 To get the most accurate profiling results, you should minimize interference caused by other programs running on the same machine. Before starting a profile session, close all web browsers, music players, instant messengers, and all other non-essential applications like Steam, Uplay, etc. Make sure you don't have the debugger hooked into the profiled program, as it also impacts the timing results.
 
-Interference caused by other programs can be seen in the profiler if context switch capture (section [3.17.3](#contextswitches)) is enabled.
+Interference caused by other programs can be seen in the profiler if context switch capture (section [3.18.3](#contextswitches)) is enabled.
 
 > [!TIP]
 > **Debugger in Visual Studio**
@@ -639,7 +633,7 @@ Interference caused by other programs can be seen in the profiler if context swi
 
 ### CPU design {#checkenvironmentcpu}
 
-Where to even begin here? Modern processors are such complex beasts that it's almost impossible to say anything about how they will behave surely. Cache configuration, prefetcher logic, memory timings, branch predictor, execution unit counts are all the drivers of instructions-per-cycle uplift nowadays after the megahertz race had hit the wall. Not only is it challenging to reason about, but you also need to take into account how the CPU topology affects things, which is described in more detail in section [3.17.4](#cputopology).
+Where to even begin here? Modern processors are such complex beasts that it's almost impossible to say anything about how they will behave surely. Cache configuration, prefetcher logic, memory timings, branch predictor, execution unit counts are all the drivers of instructions-per-cycle uplift nowadays after the megahertz race had hit the wall. Not only is it challenging to reason about, but you also need to take into account how the CPU topology affects things, which is described in more detail in section [3.18.4](#cputopology).
 
 Nevertheless, let's look at how we can try to stabilize the profiling data.
 
@@ -647,11 +641,11 @@ Nevertheless, let's look at how we can try to stabilize the profiling data.
 
 Also known as: the *spectre* thing we have to deal with now.
 
-You must be aware that most processors available on the market[^19] *do not* execute machine code linearly, as laid out in the source code. This can lead to counterintuitive timing results reported by Tracy. Trying to get more 'reliable' readings[^20] would require a change in the behavior of the code, and this is not a thing a profiler should do. So instead, Tracy shows you what the hardware is *really* doing.
+You must be aware that most processors available on the market[^19] *do not* execute machine code linearly, as laid out in the source code. This can lead to counterintuitive timing results reported by Tracy. Trying to get more "reliable" readings[^20] would require a change in the behavior of the code, and this is not a thing a profiler should do. So instead, Tracy shows you what the hardware is *really* doing.
 
 [^19]: Except low-cost ARM CPUs.
 
-[^20]: And by saying 'reliable,' you do in reality mean: behaving in a way you expect it.
+[^20]: And by saying "reliable," you do in reality mean: behaving in a way you expect it.
 
 This is a complex subject, and the details vary from one CPU to another. You can read a brief rundown of the topic at the following address: <https://travisdowns.github.io/blog/2019/06/11/speed-limits.html>.
 
@@ -681,7 +675,7 @@ While the CPU is more-or-less designed always to be able to work at the advertis
 
 - Do you have complete control over the power profile? Spoiler alert: no. The operating system may run anything at any time on any of the other cores, which will impact the turbo frequency you're able to achieve.
 
-As you can see, this feature basically screams 'unreliable results!' Best keep it disabled and run at the base frequency. Otherwise, your timings won't make much sense. A true example: branchless compression function executing multiple times with the same input data was measured executing at *four* different speeds.
+As you can see, this feature basically screams "unreliable results!" Best keep it disabled and run at the base frequency. Otherwise, your timings won't make much sense. A true example: branchless compression function executing multiple times with the same input data was measured executing at *four* different speeds.
 
 Keep in mind that even at the base frequency, you may hit the thermal limits of the silicon and be down throttled.
 
@@ -803,7 +797,7 @@ If you want to use X11 instead, you can enable the `LEGACY` option in CMake buil
 
 Special considerations must be taken to run the Tracy server/profiler GUI on Windows on ARM.
 
-Ensure that the **\"OpenCL, OpenGL, and Vulkan Compatibility Pack\"** is installed (from the Microsoft Store), otherwise the GUI will fail to open.
+Ensure that the **"OpenCL, OpenGL, and Vulkan Compatibility Pack"** is installed (from the Microsoft Store), otherwise the GUI will fail to open.
 
 ### Using an IDE
 
@@ -819,7 +813,7 @@ The CMake build configuration will begin immediately. It is likely that you will
 
 After the build configuration phase is over, you may want to make some further adjustments to what is being built. The primary place to do this is in the *Project Status* section of the CMake side panel. The two key settings there are also available in the status bar at the bottom of the window:
 
-- The *Folder* setting allows you to choose which Tracy utility you want to work with. Select \"profiler\" for the profiler's GUI.
+- The *Folder* setting allows you to choose which Tracy utility you want to work with. Select "profiler" for the profiler's GUI.
 
 - The *Build variant* setting is used to toggle between the debug and release build configurations.
 
@@ -883,7 +877,7 @@ Some source location data such as function name, file path or line number can be
 
 On selected platforms (see section [2.6](#featurematrix)) Tracy will intercept application crashes[^28]. This serves two purposes. First, the client application will be able to send the remaining profiling data to the server. Second, the server will receive a crash report with the crash reason, call stack at the time of the crash, etc.
 
-[^28]: For example, invalid memory accesses ('segmentation faults', 'null pointer exceptions'), divisions by zero, etc.
+[^28]: For example, invalid memory accesses ("segmentation faults", "null pointer exceptions"), divisions by zero, etc.
 
 This is an automatic process, and it doesn't require user interaction. If you are experiencing issues with crash handling you may want to try defining the `TRACY_NO_CRASH_HANDLER` macro to disable the built in crash handling.
 
@@ -900,31 +894,31 @@ This is an automatic process, and it doesn't require user interaction. If you ar
 
 Some features of the profiler are only available on selected platforms. Please refer to table [3](#featuretable) for details.
 
-::: {#featuretable}
-         **Feature**          **Windows**   **Linux**   **Android**   **OSX**   **iOS**   **BSD**   **QNX**
-  -------------------------- ------------- ----------- ------------- --------- --------- --------- ---------
-    Profiling program init                                                                       
-          CPU zones                                                                              
-            Locks                                                                                
-            Plots                                                                                
-           Messages                                                                              
-            Memory                                                                               
-      GPU zones (OpenGL)                                                                          
-      GPU zones (Vulkan)                                                                          
-      GPU zones (Metal)                                            ^*b*^    ^*b*^                
-         Call stacks                                                                             
-      Symbol resolution                                                                          
-        Crash handling                                                                           
-      CPU usage probing                                                                          
-       Context switches                                                                          
-         Wait stacks                                                                             
-   CPU topology information                                                                      
-     Call stack sampling                                                                         
-      Hardware sampling         ^*a*^                                                            
-        VSync capture                                                                            
+| **Feature** | **Windows** | **Linux** | **Android** | **OSX** | **iOS** | **BSD** | **QNX** |
+|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| Profiling program init |  |  |  |  |  |  |  |
+| CPU zones |  |  |  |  |  |  |  |
+| Locks |  |  |  |  |  |  |  |
+| Plots |  |  |  |  |  |  |  |
+| Messages |  |  |  |  |  |  |  |
+| Memory |  |  |  |  |  |  |  |
+| GPU zones (OpenGL) |  |  |  |  |  |  |  |
+| GPU zones (Vulkan) |  |  |  |  |  |  |  |
+| GPU zones (Metal) |  |  |  | ^*b*^ | ^*b*^ |  |  |
+| GPU zones (CUDA) |  |  |  |  |  | ? |  |
+| GPU zones (WebGPU) |  |  |  |  |  | ? | ? |
+| Call stacks |  |  |  |  |  |  |  |
+| Symbol resolution |  |  |  |  |  |  |  |
+| Crash handling |  |  |  |  |  |  |  |
+| CPU usage probing |  |  |  |  |  |  |  |
+| Context switches |  |  |  |  |  |  |  |
+| Wait stacks |  |  |  |  |  |  |  |
+| CPU topology information |  |  |  |  |  |  |  |
+| Call stack sampling |  |  |  |  |  |  |  |
+| Hardware sampling | ^*a*^ |  |  |  |  |  |  |
+| VSync capture |  |  |  |  |  |  |  |
 
-  : Feature support matrix
-:::
+_Feature support matrix_
 
  -- Not possible to support due to platform limitations.\
 ^*a*^Possible through WSL2. ^*b*^Only tested on Apple Silicon M1 series
@@ -938,9 +932,9 @@ Some features of the profiler are only available on selected platforms. Please r
 
 # Client markup {#client}
 
-With the steps mentioned above, you will be able to connect to the profiled program, but there probably won't be any data collection performed[^30]. Unless you're able to perform automatic call stack sampling (see chapter [3.17.5](#sampling)), you will have to instrument the application manually. All the user-facing interface is contained in the `public/tracy/Tracy.hpp` header file[^31].
+With the steps mentioned above, you will be able to connect to the profiled program, but there probably won't be any data collection performed[^30]. Unless you're able to perform automatic call stack sampling (see chapter [3.18.5](#sampling)), you will have to instrument the application manually. All the user-facing interface is contained in the `public/tracy/Tracy.hpp` header file[^31].
 
-[^30]: With some small exceptions, see section [3.17](#automated).
+[^30]: With some small exceptions, see section [3.18](#automated).
 
 [^31]: You should add either `public` or `public/tracy` directory from the Tracy root to the include directories list in your project. Then you will be able to `#include "tracy/Tracy.hpp"` or `#include "Tracy.hpp"`, respectively.
 
@@ -974,7 +968,7 @@ In some cases marked in the manual, Tracy expects you to provide a unique pointe
 
 Here, we pass two string literals with identical contents to two different macros. It is entirely up to the compiler to decide if it will pool these two strings into one pointer or if there will be two instances present in the executable image[^33]. For example, on MSVC, this is controlled by Configuration Properties,C/C++,Code Generation,Enable String Pooling option in the project properties (optimized builds enable it automatically). Note that even if string pooling is used on the compilation unit level, it is still up to the linker to implement pooling across object files.
 
-[^33]: [@ISO:2012:III] §2.14.5.12: \"Whether all string literals are distinct (that is, are stored in nonoverlapping objects) is implementation-defined.\"
+[^33]: [@ISO:2012:III] §2.14.5.12: "Whether all string literals are distinct (that is, are stored in nonoverlapping objects) is implementation-defined."
 
 As you can see, making sure that string literals are properly pooled can be surprisingly tricky. To work around this problem, you may employ the following technique. In *one* source file create the unique pointer for a string literal, for example:
 
@@ -1045,7 +1039,7 @@ Images are sent using the `FrameImage(image, width, height, offset, flip)` macro
 
 [^36]: For example, OpenGL flips images, but Vulkan does not.
 
-Handling image data requires a lot of memory and bandwidth[^37]. To achieve sane memory usage, you should scale down taken screenshots to a suitable size, e.g., $320\times180$.
+Handling image data requires a lot of memory and bandwidth[^37]. To achieve sane memory usage, you should scale down taken screenshots to a suitable size, e.g., 320×180.
 
 [^37]: One uncompressed 1080p image takes 8 MB.
 
@@ -1055,18 +1049,16 @@ To further reduce image data size, frame images are internally compressed using 
 
 [^39]: One pixel is stored in a nibble (4 bits) instead of 32 bits.
 
-::: {#EtcSimd}
-   **Implementation**   **Required define**   **Time**
-  -------------------- --------------------- ----------
-     x86 Reference              ---           198.2 μs
-     x86 SSE4.1^a^         `__SSE4_1__`       25.4 μs
-        x86 AVX2            `__AVX2__`        17.4 μs
-     ARM Reference              ---           1.04 ms
-     ARM32 NEON^b^         `__ARM_NEON`        529 μs
-       ARM64 NEON          `__ARM_NEON`        438 μs
+| **Implementation** | **Required define** | **Time** |
+|:------------------:|:-------------------:|:--------:|
+|   x86 Reference    |         ---         | 198.2 μs |
+|   x86 SSE4.1^a^    |    `__SSE4_1__`     | 25.4 μs  |
+|      x86 AVX2      |     `__AVX2__`      | 17.4 μs  |
+|   ARM Reference    |         ---         | 1.04 ms  |
+|   ARM32 NEON^b^    |    `__ARM_NEON`     |  529 μs  |
+|     ARM64 NEON     |    `__ARM_NEON`     |  438 μs  |
 
-  : Client compression time of $320\times180$ image. x86: Ryzen 9 3900X (MSVC); ARM: ODROID-C2 (gcc).
-:::
+_Client compression time of 320×180 image. x86: Ryzen 9 3900X (MSVC); ARM: ODROID-C2 (gcc)._
 
 ^a)^ VEX encoding; ^b)^ ARM32 NEON code compiled for ARM64
 
@@ -1077,7 +1069,7 @@ To further reduce image data size, frame images are internally compressed using 
 >
 > - This second thread will be periodically woken up, even if there are no frame images to compress[^41]. If you are not using the frame image capture functionality and you don't wish this thread to be running, you can define the `TRACY_NO_FRAME_IMAGE` macro.
 >
-> - Due to implementation details of the network buffer, a single frame image cannot be greater than 256 KB after compression. Note that a $960\times540$ image fits in this limit.
+> - Due to implementation details of the network buffer, a single frame image cannot be greater than 256 KB after compression. Note that a 960×540 image fits in this limit.
 
 [^40]: Small part of compression task is offloaded to the server.
 
@@ -1118,7 +1110,7 @@ Everything needs to be correctly initialized (the cleanup is left for the reader
         glBufferData(GL_PIXEL_PACK_BUFFER, 320*180*4, nullptr, GL_STREAM_READ);
     }
 
-We will now set up a screen capture, which will downscale the screen contents to $320\times180$ pixels and copy the resulting image to a buffer accessible by the CPU when the operation is done. This should be placed right before *swap buffers* or *present* call.
+We will now set up a screen capture, which will downscale the screen contents to 320×180 pixels and copy the resulting image to a buffer accessible by the CPU when the operation is done. This should be placed right before *swap buffers* or *present* call.
 
     assert(m_fiQueue.empty() || m_fiQueue.front() != m_fiIdx);  // check for buffer overrun
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_fiFramebuffer[m_fiIdx]);
@@ -1179,25 +1171,19 @@ With all this done, you can perform the screen capture as follows:
 While this approach is much more complex than the previously discussed one, the resulting image quality increase makes it worthwhile.
 
 <figure id="highqualityss" data-latex-placement="h">
-<div class="minipage">
 <img src="images/screenshot-lo.png" style="width:90.0%" />
-</div>
-<div class="minipage">
 <img src="images/screenshot-hi.png" style="width:90.0%" />
-</div>
 <figcaption>High-quality screen shot</figcaption>
 </figure>
 
 You can see the performance results you may expect in a simple application in table [5](#asynccapture). The naïve capture performs synchronous retrieval of full-screen image and resizes it using *stb_image_resize*. The proper and high-quality captures do things as described in this chapter.
 
-::: {#asynccapture}
-    **Resolution**    **Naïve capture**   **Proper capture**   **High quality**
-  ------------------ ------------------- -------------------- ------------------
-   $1280\times720$         80 FPS              4200 FPS            2800 FPS
-   $2560\times1440$        23 FPS              3300 FPS            1600 FPS
+| **Resolution** | **Naïve capture** | **Proper capture** | **High quality** |
+|:--------------:|:-----------------:|:------------------:|:----------------:|
+|    1280×720    |      80 FPS       |      4200 FPS      |     2800 FPS     |
+|   2560×1440    |      23 FPS       |      3300 FPS      |     1600 FPS     |
 
-  : Frame capture efficiency
-:::
+_Frame capture efficiency_
 
 ## Marking zones {#markingzones}
 
@@ -1220,7 +1206,7 @@ To use printf-like formatting, you can use the `ZoneTextF(fmt, ...)` and `ZoneNa
 
 ### Manual management of zone scope
 
-The zone markup macros automatically report when they end, through the RAII mechanism[^44]. This is very helpful, but sometimes you may want to mark the zone start and end points yourself, for example, if you want to have a zone that crosses the function's boundary. You can achieve this by using the C API, which is described in section [3.13](#capi).
+The zone markup macros automatically report when they end, through the RAII mechanism[^44]. This is very helpful, but sometimes you may want to mark the zone start and end points yourself, for example, if you want to have a zone that crosses the function's boundary. You can achieve this by using the C API, which is described in section [3.14](#capi).
 
 [^44]: <https://en.cppreference.com/w/cpp/language/raii>
 
@@ -1241,19 +1227,19 @@ Zone objects can't be moved or copied.
 >
 >     {
 >         ZoneNamed(Zone1, true);
->         @\circled{a}@
+>         (a)
 >         {
 >             ZoneNamed(Zone2, true);
->             @\circled{b}@
+>             (b)
 >         }
->         @\circled{c}@
+>         (c)
 >     }
 >
-> It is valid to set the `Zone1` text or name *only* in places or . After `Zone2` is created at you can no longer perform operations on `Zone1`, until `Zone2` is destroyed.
+> It is valid to set the `Zone1` text or name *only* in places (a) or (c). After `Zone2` is created at (b) you can no longer perform operations on `Zone1`, until `Zone2` is destroyed.
 
 ### Filtering zones {#filteringzones}
 
-Zone logging can be disabled on a per-zone basis by making use of the `ZoneNamed` macros. Each of the macros takes an `active` argument ('`true`' in the example in section [3.4.2](#multizone)), which will determine whether the zone should be logged.
+Zone logging can be disabled on a per-zone basis by making use of the `ZoneNamed` macros. Each of the macros takes an `active` argument ("`true`" in the example in section [3.4.2](#multizone)), which will determine whether the zone should be logged.
 
 Note that this parameter may be a run-time variable, such as a user-controlled switch to enable profiling of a specific part of code only when required.
 
@@ -1314,6 +1300,21 @@ Exiting the profiled application from inside a zone is not supported. When the c
 
 As a workaround, you may add a `try`/`catch` pair at the bottom of the function stack (for example in the `main()` function) and replace `exit()` calls with throwing a custom exception. When this exception is caught, you may call `exit()`, knowing that the application's data structures (including profiling zones) were properly cleaned up.
 
+## Marking sections {#markingsections}
+
+To provide a high-level overview of what your program is doing, you may mark sections of execution. For example, in a puzzle game, the main menu would be a section, and each of the levels would be a section on its own.
+
+To mark when a section starts, use the `TracySectionEnter(fmt, ...)` macro with printf-like formatting. The macro will return an `uint32_t` identifier, which you must store and pass to the corresponding section-end macro, `TracySectionLeave(id)`. Here's an example of a simple RAII wrapper:
+
+    struct TracySection
+    {
+        explicit TracySection(const char* name) : idx(TracySectionEnter("%s", name)) {}
+        ~TracySection() { TracySectionLeave(idx); }
+        uint32_t idx;
+    };
+
+Each of the sections you add is handled independently of any other section. Multiple sections may overlap, either with a hierarchical structure or with each section having a part that does not coincide with other sections.
+
 ## Marking locks
 
 Modern programs must use multi-threading to achieve the full performance capability of the CPU. However, correct execution requires claiming exclusive access to data shared between threads. When many threads want to simultaneously enter the same critical section, the application's multi-threaded performance advantage nullifies. To help solve this problem, Tracy can collect and display lock interactions in threads.
@@ -1366,7 +1367,7 @@ To configure how plot values are presented by the profiler, you may use the `Tra
 
 - `tracy::PlotFormatType::Memory` -- treats the values as memory sizes. Will display kilobytes, megabytes, etc.
 
-- `tracy::PlotFormatType::Percentage` -- values will be displayed as percentage (with value $100$ being equal to $100\%$).
+- `tracy::PlotFormatType::Percentage` -- values will be displayed as percentage (with value 100 being equal to 100%).
 
 The `step` parameter determines whether the plot will be displayed as a staircase or will smoothly change between plot points (see figure [5](#plotconfig)). The `fill` parameter can be used to disable filling the area below the plot with a solid color.
 
@@ -1387,13 +1388,27 @@ Fast navigation in large data sets and correlating zones with what was happening
 
 If you want to include color coding of the messages (for example to make critical messages easily visible), you can use `TracyMessageC(text, size, color)` or `TracyMessageLC(text, color)` macros.
 
-Messages can also have different severity levels: `Trace`, `Debug`, `Info`, `Warning`, `Error` or `Fatal`. The `TracyMessage` macros will log messages with the severity `Info`. To log a message with a different severity, you may use the `TracyLogString` macro that regroups all the functionalities from the previous macros. We recommend writing your own macros, wrapping the different severities for easier use. You may provide a color of 0 if you do not want to set a color for this message.
+Messages can also have different severity levels:
+
+- *Trace* -- Broadly track variable states and events in the software program.
+
+- *Debug* -- Describes variable states and details about specific internal events in the software, that are useful for investigations.
+
+- *Info* -- Describes normal events, which inform on the expected progress and state of your software.
+
+- *Warning* -- Describes potentially dangerous situations caused by unexpected events and states.
+
+- *Error* -- Describes the occurrence of unexpected behavior. Does not interrupt the execution of the software.
+
+- *Fatal* -- Describes a critical event that will lead to a software failure/crash.
+
+The `TracyMessage` macros will log messages with the severity `Info`. To log a message with a different severity, you may use the `TracyLogString` macro that regroups all the functionalities from the previous macros. We recommend writing your own macros, wrapping the different severities for easier use. You may provide a color of 0 if you do not want to set a color for this message.
 
 Examples:
 
     std::string dynStr = "Trace using a dynamic string, blue color, no callstack";
     TracyLogString( tracy::MessageSeverity::Trace, 0xFF, 0, dynStr.size(), dynStr.c_str() );
-    TracyLogString( tracy::MessageSeverity::Warning, 0, TRACY_CALLSTACK, "Warning using a string litteral, no color, capturing the callstack to a depth of TRACY_CALLSTACK" );
+    TracyLogString( tracy::MessageSeverity::Warning, 0, TRACY_CALLSTACK, "Warning using a string literal, no color, capturing the callstack to a depth of TRACY_CALLSTACK" );
 
 ### Application information {#appinfo}
 
@@ -1432,8 +1447,6 @@ To mark memory events, use the `TracyAlloc(ptr, size)` and `TracyFree(ptr)` macr
         free(ptr);
     }
 
-In some rare cases (e.g., destruction of TLS block), events may be reported after the profiler is no longer available, which would lead to a crash. To work around this issue, you may use `TracySecureAlloc` and `TracySecureFree` variants of the macros.
-
 > [!IMPORTANT]
 > **Important**
 >
@@ -1462,9 +1475,11 @@ Sometimes an application will use more than one memory pool. For example, in add
 
 To mark that a separate memory pool is to be tracked you should use the named version of memory macros, for example `TracyAllocN(ptr, size, name)` and `TracyFreeN(ptr, name)`, where `name` is an unique pointer to a string literal (section [3.1.2](#uniquepointers)) identifying the memory pool.
 
+Certain memory allocator designs ("arena allocators") use an always-incrementing pointer to track the next region to allocate and do not support deallocation of individual objects. The only way to free memory with such an allocator is to simultaneously release all the objects that were allocated (reset the allocator state). You can mark such a mass-deallocation event in a memory pool with the `TracyMemoryDiscard(name)` macro.
+
 ## GPU profiling {#gpuprofiling}
 
-Tracy provides bindings for profiling OpenGL, Vulkan, Direct3D 11, Direct3D 12, Metal, OpenCL and CUDA execution time on GPU.
+Tracy provides bindings for profiling OpenGL, Vulkan, Direct3D 11, Direct3D 12, Metal, OpenCL, CUDA and WebGPU execution time on GPU.
 
 Note that the CPU and GPU timers may be unsynchronized unless you create a calibrated context, but the availability of calibrated contexts is limited. You can try to correct the desynchronization of uncalibrated contexts in the profiler's options (section [5.4](#options)).
 
@@ -1510,6 +1525,12 @@ You also need to periodically collect the GPU events using the `TracyGpuCollect`
 > - Calling the `TracyGpuCollect` macro is a fairly slow operation (couple μs).
 
 [^49]: Because Apple is unable to implement standards properly.
+
+##### Calibrated context
+
+By default, the OpenGL context is uncalibrated: the CPU and GPU clocks are aligned only once, when the context is created, so over long captures the two time domains may drift apart (section [5.4](#options) describes correcting this drift manually). Defining `TRACY_OPENGL_AUTO_CALIBRATION` before including `TracyOpenGL.hpp` enables periodic recalibration instead: roughly once per second Tracy samples the GPU and CPU clocks together and emits a calibration event, allowing the profiler to track and remove the drift automatically.
+
+This is opt-in because OpenGL exposes no atomic CPU+GPU timestamp query (unlike Vulkan's `VK_EXT_calibrated_timestamps` or Direct3D 12, whose contexts are always calibrated). Recalibration therefore reads the GPU clock with `glGetInteger64v(GL_TIMESTAMP)`, which forces a CPU/GPU synchronization (a pipeline stall) each time it runs. Enable it only when the improved long-capture alignment is worth the periodic stall.
 
 ### Vulkan
 
@@ -1585,7 +1606,7 @@ Similar to Vulkan and OpenGL, you also need to periodically collect the OpenCL e
 
 ### CUDA
 
-CUDA support is enabled by including the `public/tracy/TracyCUDA.hpp` header file. To use it, the NVIDIA CUPTI library is required. This library comes with the NVIDIA CUDA Toolkit and is located at `CUDA_INSTALLATION_PATH/extras/CUPTI`.
+CUDA support is enabled by including the `public/tracy/TracyCUDA.hpp` header file. To use it, make sure you have the NVIDIA CUDA Toolkit v12.4 (or later) installed, and that the NVIDIA CUPTI library is available in the toolkit (located at `CUDA_INSTALLATION_PATH/extras/CUPTI`).
 
 Tracing CUDA requires the creation of a Tracy CUDA context using the macro `TracyCUDAContext()`, which returns an instance of a `tracy::CUDACtx` object. TracyCUDA allows only a single `tracy::CUDACtx` object at any given time. Subsequent calls to `TracyCUDAContext()` will return the same reference-counted object. There is no need for clients to instantiate multiple `tracy::CUDACtx` objects, as a single context is capable of instrumenting all CUDA contexts and streams.
 
@@ -1598,6 +1619,16 @@ To begin instrumentation of all CUDA API calls, use the `TracyCUDAStartProfiling
 Unlike other GPU backends in Tracy, there is no need to call `TracyCUDACollect(ctx)` periodically, since a background collector thread is enabled by default. This behavior can be disabled by defining `TRACY_CUDA_ENABLE_COLLECTOR_THREAD` as `0` prior to including `TracyCUDA.hpp`.
 
 To stop profiling, call the `TracyCUDAStopProfiling(ctx)` macro.
+
+### WebGPU
+
+WebGPU support is enabled by including the `public/tracy/TracyWebGPU.hpp` header file. Both major implementations of WebGPU (Dawn and wgpu-native) are supported.
+
+Before creating the WebGPU device, make sure to call `TracyWebGPUSetupDeviceDescriptor()` to let Tracy request the necessary device features and extensions necessary for profiling. After the device is created, use the `TracyWebGPUContext()` macro to instantiate the necessary `WebGPUQueueCtx` object required for GPU instrumentation. The object should later be cleaned up with the `TracyWebGPUDestroy()` macro. To set a custom name for the context, use the `TracyWebGPUContextName()` macro.
+
+To instrument a GPU zone, use the various `TracyWebGPU*Zone*()` macros. Note that WebGPU only offers command instrumentation at the "pass"-level. While command-level granularity is possible through implementation-specific WebGPU extensions, Tracy does not support it at the moment. Supply the corresponding WebGPU pass descriptor to the instrumentation macro *before* creating the WebGPU pass encoder.
+
+You are required to periodically collect the GPU events using the `TracyWebGPUCollect()` macro. Good places for collection are: after synchronous waits, after event processing `wgpuInstanceProcessEvents`, after present drawable calls (`wgpuSurfacePresent`), and inside the completion callback of command queues (`wgpuQueueOnSubmittedWorkDone`).
 
 ### ROCm
 
@@ -1623,13 +1654,13 @@ rocprofv3 -L
 
 Putting more than one GPU zone macro in a single scope features the same issue as with the `ZoneScoped` macros, described in section [3.4.2](#multizone) (but this time the variable name is `___tracy_gpu_zone`).
 
-To solve this problem, in case of OpenGL use the `TracyGpuNamedZone` macro in place of `TracyGpuZone` (or the color variant). The same applies to Vulkan, Direct3D 11/12 and Metal -- replace `TracyVkZone` with `TracyVkNamedZone`, `TracyD3D11Zone`/`TracyD3D12Zone` with `TracyD3D11NamedZone`/`TracyD3D12NamedZone`, and `TracyMetalZone` with `TracyMetalNamedZone`.
+To solve this problem, in case of OpenGL use the `TracyGpuNamedZone` macro in place of `TracyGpuZone` (or the color variant). The same applies to Vulkan, Direct3D 11/12, Metal and WebGPU -- replace `TracyVkZone` with `TracyVkNamedZone`, `TracyD3D11Zone`/`TracyD3D12Zone` with `TracyD3D11NamedZone`/`TracyD3D12NamedZone`, `TracyMetalZone` with `TracyMetalNamedZone`, and `TracyWebGPUZone` with `TracyWebGPUNamedZone`.
 
 Remember to provide your name for the created stack variable as the first parameter to the macros.
 
 ### Transient GPU zones
 
-Transient zones (see section [3.4.4](#transientzones) for details) are available in OpenGL, Vulkan, and Direct3D 11/12 macros. Transient zones are not available for Metal at this moment.
+Transient zones (see section [3.4.4](#transientzones) for details) are available in OpenGL, Vulkan, Direct3D 11/12 and WebGPU macros. Transient zones are not available for Metal at this moment.
 
 ## Fibers
 
@@ -1674,32 +1705,30 @@ As you can see, there are two threads, `t1` and `t2`, which are simulating worke
 
 ## Collecting call stacks {#collectingcallstacks}
 
-Capture of true calls stacks can be performed by using macros with the `S` postfix, which require an additional parameter, specifying the depth of call stack to be captured. The greater the depth, the longer it will take to perform capture. Currently you can use the following macros: `ZoneScopedS`, `ZoneScopedNS`, `ZoneScopedCS`, `ZoneScopedNCS`, `TracyAllocS`, `TracyFreeS`, `TracySecureAllocS`, `TracySecureFreeS`, `TracyMessageS`, `TracyMessageLS`, `TracyMessageCS`, `TracyMessageLCS`, `TracyGpuZoneS`, `TracyGpuZoneCS`, `TracyVkZoneS`, `TracyVkZoneCS`, and the named and transient variants.
+Capture of true calls stacks can be performed by using macros with the `S` postfix, which require an additional parameter, specifying the depth of call stack to be captured. The greater the depth, the longer it will take to perform capture. Currently you can use the following macros: `ZoneScopedS`, `ZoneScopedNS`, `ZoneScopedCS`, `ZoneScopedNCS`, `TracyAllocS`, `TracyFreeS`, `TracyMessageS`, `TracyMessageLS`, `TracyMessageCS`, `TracyMessageLCS`, `TracyGpuZoneS`, `TracyGpuZoneCS`, `TracyVkZoneS`, `TracyVkZoneCS`, and the named and transient variants.
 
 Be aware that call stack collection is a relatively slow operation. Table [6](#CallstackTimes) and figure [6](#CallstackPlot) show how long it took to perform a single capture of varying depth on multiple CPU architectures.
 
-::: {#CallstackTimes}
-   **Depth**   **x86**   **x64**   **ARM**    **ARM64**
-  ----------- --------- --------- ---------- -----------
-       1        34 ns     98 ns    6.62 μs     6.63 μs
-       2        35 ns    150 ns    8.08 μs     8.25 μs
-       3        36 ns    168 ns    9.75 μs      10 μs
-       4        39 ns    190 ns    10.92 μs   11.58 μs
-       5        42 ns    206 ns    12.5 μs    13.33 μs
-      10        52 ns    306 ns    19.62 μs   21.71 μs
-      15        63 ns    415 ns    26.83 μs   30.13 μs
-      20        77 ns    531 ns    34.25 μs   38.71 μs
-      25        89 ns    630 ns    41.17 μs   47.17 μs
-      30       109 ns    735 ns    48.33 μs   55.63 μs
-      35       123 ns    843 ns    55.87 μs   64.09 μs
-      40       142 ns    950 ns    63.12 μs   72.59 μs
-      45       154 ns    1.05 μs   70.54 μs     81 μs
-      50       167 ns    1.16 μs    78 μs      89.5 μs
-      55       179 ns    1.26 μs   85.04 μs     98 μs
-      60       193 ns    1.37 μs   92.75 μs   106.59 μs
+| **Depth** | **x86** | **x64** | **ARM**  | **ARM64** |
+|:---------:|:-------:|:-------:|:--------:|:---------:|
+|     1     |  34 ns  |  98 ns  | 6.62 μs  |  6.63 μs  |
+|     2     |  35 ns  | 150 ns  | 8.08 μs  |  8.25 μs  |
+|     3     |  36 ns  | 168 ns  | 9.75 μs  |   10 μs   |
+|     4     |  39 ns  | 190 ns  | 10.92 μs | 11.58 μs  |
+|     5     |  42 ns  | 206 ns  | 12.5 μs  | 13.33 μs  |
+|    10     |  52 ns  | 306 ns  | 19.62 μs | 21.71 μs  |
+|    15     |  63 ns  | 415 ns  | 26.83 μs | 30.13 μs  |
+|    20     |  77 ns  | 531 ns  | 34.25 μs | 38.71 μs  |
+|    25     |  89 ns  | 630 ns  | 41.17 μs | 47.17 μs  |
+|    30     | 109 ns  | 735 ns  | 48.33 μs | 55.63 μs  |
+|    35     | 123 ns  | 843 ns  | 55.87 μs | 64.09 μs  |
+|    40     | 142 ns  | 950 ns  | 63.12 μs | 72.59 μs  |
+|    45     | 154 ns  | 1.05 μs | 70.54 μs |   81 μs   |
+|    50     | 167 ns  | 1.16 μs |  78 μs   |  89.5 μs  |
+|    55     | 179 ns  | 1.26 μs | 85.04 μs |   98 μs   |
+|    60     | 193 ns  | 1.37 μs | 92.75 μs | 106.59 μs |
 
-  : Median times of zone capture with call stack. x86, x64: i7 8700K; ARM: Banana Pi; ARM64: ODROID-C2. Selected architectures are plotted on figure [6](#CallstackPlot)
-:::
+_Median times of zone capture with call stack. x86, x64: i7 8700K; ARM: Banana Pi; ARM64: ODROID-C2. Selected architectures are plotted on figure [6](#CallstackPlot)_
 
 <figure id="CallstackPlot" data-latex-placement="h">
 
@@ -1715,7 +1744,7 @@ Tracy will automatically exclude certain uninteresting functions from the captur
 > [!IMPORTANT]
 > **Important!**
 >
-> Collecting call stack data will also trigger retrieval of profiled program's executable code by the profiler. See section [3.17.7](#executableretrieval) for details.
+> Collecting call stack data will also trigger retrieval of profiled program's executable code by the profiler. See section [3.18.7](#executableretrieval) for details.
 
 > [!TIP]
 > **How to disable**
@@ -1749,7 +1778,7 @@ You must compile the profiled application with debugging symbols enabled to have
 
 #### External libraries
 
-You may also be interested in symbols from external libraries, especially if you have sampling profiling enabled (section [3.17.5](#sampling)).
+You may also be interested in symbols from external libraries, especially if you have sampling profiling enabled (section [3.18.5](#sampling)).
 
 ##### Windows
 
@@ -1800,7 +1829,7 @@ An example implementation of such a lock interface is provided below, as a refer
     void DbgHelpUnlock() { ReleaseMutex(dbgHelpLock); }
     }
 
-At initilization time, tracy will attempt to preload symbols for device drivers and process modules. As this process can be slow when a lot of pdbs are involved, you can set the `TRACY_NO_DBGHELP_INIT_LOAD` environment variable to \"1\" to disable this behavior and rely on-demand symbol loading.
+At initilization time, tracy will attempt to preload symbols for device drivers and process modules. As this process can be slow when a lot of pdbs are involved, you can set the `TRACY_NO_DBGHELP_INIT_LOAD` environment variable to "1" to disable this behavior and rely on-demand symbol loading.
 
 #### Disabling resolution of inline frames
 
@@ -1811,6 +1840,10 @@ Inline frames retrieval on Windows can be multiple orders of magnitude slower th
 By default, tracy client resolves callstack symbols in a background thread at runtime. This process requires that tracy client load symbols for the shared libraries involved, which requires additial memory allocations, and potential impact runtime performance if a lot of symbol queries are involved. As an alternative to to runtime symbol resolution, we can set the environment variable `TRACY_SYMBOL_OFFLINE_RESOLVE` to 1 and instead have tracy client only resolve the minimal set of info required for offline resolution (a shared library path and an offset into that shared library).
 
 The generated tracy capture will have callstack frames symbols showing `[unresolved]`. The `update` tool can be used to load that capture, perform symbol resolution offline (by passing `-r`) and writing out a new capture with symbols resolved. By default `update` will use the original shared libraries paths that were recorded in the capture (which assumes running in the same machine or a machine with identical filesystem setup as the one used to run the tracy instrumented application). You can do path substitution with the `-p` option to perform any number of path substitions in order to use symbols located elsewhere.
+
+By default symbol resolution is performed with the platform's native facility: the DbgHelp library on Windows, and the `addr2line` tool found in `PATH` elsewhere. You can override this with the `-a` option, passing the path to a custom `addr2line`-compatible tool (for instance an `addr2line` from a cross-compilation toolchain, or `llvm-addr2line`). The `-a` option works on all platforms, including Windows, and takes precedence over the platform default.
+
+Extra arguments can be passed verbatim to the resolution tool with the `-A` option. Tracy records callstack frame offsets relative to the image base, but `addr2line`-compatible tools expect a full virtual address for images that have a non-zero preferred image base (such as PE on Windows or Mach-O on Apple). For these, pass `-A "--relative-address"` so that `llvm-addr2line` or `llvm-symbolizer` adds the image base back. ELF images need no such adjustment.
 
 > [!IMPORTANT]
 > **Important**
@@ -1839,40 +1872,36 @@ Lua instrumentation needs to perform additional work (including memory allocatio
 
 ### Call stacks
 
-To collect Lua call stacks (see section [3.11](#collectingcallstacks)), replace `tracy.ZoneBegin()` calls with `tracy.ZoneBeginS(depth)`, and `tracy.ZoneBeginN(name)` calls with `tracy.ZoneBeginNS(name, depth)`. Using the `TRACY_CALLSTACK` macro automatically enables call stack collection in all zones.
+To collect Lua call stacks (see section [3.12](#collectingcallstacks)), replace `tracy.ZoneBegin()` calls with `tracy.ZoneBeginS(depth)`, and `tracy.ZoneBeginN(name)` calls with `tracy.ZoneBeginNS(name, depth)`. Using the `TRACY_CALLSTACK` macro automatically enables call stack collection in all zones.
 
 Be aware that for Lua call stack retrieval to work, you need to be on a platform that supports the collection of native call stacks.
 
 Cost of performing Lua call stack capture is presented in table [7](#CallstackTimesLua) and figure [7](#CallstackPlotLua). Lua call stacks include native call stacks, which have a capture cost of their own (table [6](#CallstackTimes)), and the `depth` parameter is applied for both captures. The presented data were captured with full Lua stack depth, but only 13 frames were available on the native call stack. Hence, to explain the non-linearity of the graph, you need to consider what was truly measured:
 
-$$\text{Cost}_{\text{total}}(\text{depth}) =
-\begin{cases}
-\text{Cost}_{\text{Lua}}(\text{depth}) + \text{Cost}_{\text{native}}(\text{depth}) & \text{when depth} \leq 13 \\
-\text{Cost}_{\text{Lua}}(\text{depth}) + \text{Cost}_{\text{native}}(13) & \text{when depth} > 13
-\end{cases}$$
+    Cost_total(depth) =
+        Cost_Lua(depth) + Cost_native(depth)   when depth ≤ 13
+        Cost_Lua(depth) + Cost_native(13)   when depth > 13
 
-::: {#CallstackTimesLua}
-   **Depth**   **Time**
-  ----------- ----------
-       1        707 ns
-       2        699 ns
-       3        624 ns
-       4        727 ns
-       5        836 ns
-      10       1.77 μs
-      15       2.44 μs
-      20       2.51 μs
-      25       2.98 μs
-      30        3.6 μs
-      35       4.33 μs
-      40       5.17 μs
-      45       6.01 μs
-      50       6.99 μs
-      55       8.11 μs
-      60       9.17 μs
+| **Depth** | **Time** |
+|:---------:|:--------:|
+|     1     |  707 ns  |
+|     2     |  699 ns  |
+|     3     |  624 ns  |
+|     4     |  727 ns  |
+|     5     |  836 ns  |
+|    10     | 1.77 μs  |
+|    15     | 2.44 μs  |
+|    20     | 2.51 μs  |
+|    25     | 2.98 μs  |
+|    30     |  3.6 μs  |
+|    35     | 4.33 μs  |
+|    40     | 5.17 μs  |
+|    45     | 6.01 μs  |
+|    50     | 6.99 μs  |
+|    55     | 8.11 μs  |
+|    60     | 9.17 μs  |
 
-  : Median times of Lua zone capture with call stack (x64, 13 native frames)
-:::
+_Median times of Lua zone capture with call stack (x64, 13 native frames)_
 
 <figure id="CallstackPlotLua" data-latex-placement="h">
 
@@ -1962,7 +1991,7 @@ However, the validation comes with a performance cost, which you may not want to
 
 #### Transient zones in C API
 
-There is no explicit support for transient zones (section [3.4.4](#transientzones)) in the C API macros. However, this functionality can be implemented by following instructions outlined in section [3.13.12](#capibindings).
+There is no explicit support for transient zones (section [3.4.4](#transientzones)) in the C API macros. However, this functionality can be implemented by following instructions outlined in section [3.14.12](#capibindings).
 
 ### Lock markup
 
@@ -2010,6 +2039,39 @@ After you release the lock use the `TracyCLockAfterUnlock` macro:
 
 You can optionally mark the location of where the lock is held by using the `TracyCLockMark` macro, this should be done after acquiring the lock.
 
+Similarly, you can use the following macros to mark a shared lock using the C API:
+
+- `TracyCSharedLockAnnounce(lock_ctx)`
+
+- `TracyCSharedLockTerminate(lock_ctx)`
+
+- `TracyCSharedLockBeforeLock(lock_ctx)`
+
+- `TracyCSharedLockAfterLock(lock_ctx)`
+
+- `TracyCSharedLockAfterUnlock(lock_ctx)`
+
+- `TracyCSharedLockAfterTryLock(lock_ctx, acquired)`
+
+- `TracyCSharedLockBeforeSharedLock(lock_ctx)`
+
+- `TracyCSharedLockAfterSharedLock(lock_ctx)`
+
+- `TracyCSharedLockAfterSharedUnlock(lock_ctx)`
+
+- `TracyCSharedLockAfterTrySharedLock(lock_ctx, acquired)`
+
+- `TracyCSharedLockMark(lock_ctx)`
+
+- `TracyCSharedLockCustomName(lock_ctx, name, size)`
+
+A shared lock context has to be defined next to the shared lock that it will be marking:
+
+    TracyCSharedLockCtx tracy_shared_lock_ctx;
+    HANDLE shared_lock;
+
+The same rules apply to shared locks as to regular locks, but you need to use the shared lock macros instead. Lock implementations in classes `Lockable` and `SharedLockable` show how to properly perform context handling.
+
 ### Memory profiling {#cmemoryprofiling}
 
 Use the following macros in your implementations of `malloc` and `free`:
@@ -2018,19 +2080,15 @@ Use the following macros in your implementations of `malloc` and `free`:
 
 - `TracyCFree(ptr)`
 
-- `TracyCSecureAlloc(ptr, size)`
-
-- `TracyCSecureFree(ptr)`
-
 Correctly using this functionality can be pretty tricky. You also will need to handle all the memory allocations made by external libraries (which typically allow usage of custom memory allocation functions) and the allocations made by system functions. If you can't track such an allocation, you will need to make sure freeing is not reported[^56].
 
 [^56]: It's not uncommon to see a pattern where a system function returns some allocated memory, which you then need to release.
 
 There is no explicit support for `realloc` function. You will need to handle it by marking memory allocations and frees, according to the system manual describing the behavior of this routine.
 
-Memory pools (section [3.8.1](#memorypools)) are supported through macros with `N` postfix.
+Memory pools (section [3.9.1](#memorypools)) are supported through macros with `N` postfix.
 
-For more information about memory profiling, refer to section [3.8](#memoryprofiling).
+For more information about memory profiling, refer to section [3.9](#memoryprofiling).
 
 ### Plots and messages
 
@@ -2052,7 +2110,7 @@ To send additional markup in form of plot data points or messages use the follow
 
 - `TracyCAppInfo(txt, size)`
 
-Consult sections [3.6](#plottingdata) and [3.7](#messagelog) for more information.
+Consult sections [3.7](#plottingdata) and [3.8](#messagelog) for more information.
 
 ### GPU zones
 
@@ -2087,16 +2145,16 @@ To see how you should use this API, you should look at the reference implementat
 > [!IMPORTANT]
 > **Important**
 >
-> A common mistake is to skip the zone \"`isActive`\" check. When using `TRACY_ON_DEMAND`, you need to read the value of `TracyCIsConnected` once, and check the same value for both\
+> A common mistake is to skip the zone "`isActive`" check. When using `TRACY_ON_DEMAND`, you need to read the value of `TracyCIsConnected` once, and check the same value for both\
 > `___tracy_emit_gpu_zone_begin_alloc` and `___tracy_emit_gpu_zone_end`. Tracy may otherwise receive a zone end without a zone begin.
 
 ### Fibers
 
-Fibers are available in the C API through the `TracyCFiberEnter` and `TracyCFiberLeave` macros. To use them, you should observe the requirements listed in section [3.10](#fibers).
+Fibers are available in the C API through the `TracyCFiberEnter` and `TracyCFiberLeave` macros. To use them, you should observe the requirements listed in section [3.11](#fibers).
 
 ### Connection Status
 
-To query the connection status (section [3.20](#connectionstatus)) using the C API you should use the `TracyCIsConnected` macro.
+To query the connection status (section [3.21](#connectionstatus)) using the C API you should use the `TracyCIsConnected` macro.
 
 ### Getting Time
 
@@ -2104,11 +2162,11 @@ You can retrieve the current profiler time using the `___tracy_get_time()` funct
 
 ### Call stacks
 
-You can collect call stacks of zones and memory allocation events, as described in section [3.11](#collectingcallstacks), by using macros with `S` postfix, such as: `TracyCZoneS`, `TracyCZoneNS`, `TracyCZoneCS`, `TracyCZoneNCS`, `TracyCAllocS`, `TracyCFreeS`, and so on.
+You can collect call stacks of zones and memory allocation events, as described in section [3.12](#collectingcallstacks), by using macros with `S` postfix, such as: `TracyCZoneS`, `TracyCZoneNS`, `TracyCZoneCS`, `TracyCZoneNCS`, `TracyCAllocS`, `TracyCFreeS`, and so on.
 
 ### Using the C API to implement bindings {#capibindings}
 
-Tracy C API exposes functions with the `___tracy` prefix that you may use to write bindings to other programming languages. Most of the functions available are a counterpart to macros described in section [3.13](#capi). However, some functions do not have macro equivalents and are dedicated expressly for binding implementation purposes. This includes the following:
+Tracy C API exposes functions with the `___tracy` prefix that you may use to write bindings to other programming languages. Most of the functions available are a counterpart to macros described in section [3.14](#capi). However, some functions do not have macro equivalents and are dedicated expressly for binding implementation purposes. This includes the following:
 
 - `___tracy_startup_profiler(void)`
 
@@ -2118,7 +2176,7 @@ Tracy C API exposes functions with the `___tracy` prefix that you may use to wri
 
 - `___tracy_alloc_srcloc_name(uint32_t line, const char* source, size_t sourceSz, const char* function, size_t functionSz, const char* name, size_t nameSz)`
 
-Here `line` is line number in the `source` source file and `function` is the name of a function in which the zone is created. `sourceSz` and `functionSz` are the size of the corresponding string arguments in bytes. You may additionally specify an optional zone name, by providing it in the `name` variable, and specifying its size in `nameSz`.
+Here `line` is line number in the `source` source file and `function` is the name of a function in which the zone is created. `sourceSz` and `functionSz` are the sizes of the corresponding string arguments in bytes. You may additionally specify an optional zone name by providing it in the `name` variable and specifying its size in `nameSz`. If the passed strings contain null-terminating characters, these characters must be excluded from the provided sizes.
 
 The `___tracy_alloc_srcloc` and `___tracy_alloc_srcloc_name` functions return an `uint64_t` source location identifier corresponding to an *allocated source location*. As these functions do not require the provided string data to be available after they return, the calling code is free to deallocate them at any time afterward. This way, the string lifetime requirements described in section [3.1](#textstrings) are relaxed.
 
@@ -2128,7 +2186,7 @@ The `uint64_t` return value from allocation functions must be passed to one of t
 
 - `___tracy_emit_zone_begin_alloc_callstack(srcloc, depth, active)`
 
-These functions return a `TracyCZoneCtx` context value, which must be handled, as described in sections [3.13.3](#czonemarkup) and [3.13.3.1](#zonectx).
+These functions return a `TracyCZoneCtx` context value, which must be handled, as described in sections [3.14.3](#czonemarkup) and [3.14.3.1](#zonectx).
 
 The variable representing an allocated source location is of an opaque type. After it is passed to one of the zone begin functions, its value *cannot be reused* (the variable is consumed). You must allocate a new source location for each zone begin event, even if the location data would be the same as in the previous instance.
 
@@ -2272,21 +2330,22 @@ Set the following environment variables before launching (or export them in your
     PYTHONPATH=/path/to/tracy/build/python/Release
     TRACY_CAPTURES_DIR=/path/to/captures   # enables list_captures
     TRACY_MCP_PORT=47380                   # optional; default 47380
+    TRACY_MCP_TRANSPORT=streamable-http    # optional; streamable-http or sse
 
 ### Integrating with an AI assistant
 
-The server runs as a singleton on SSE transport (port 47380 by default). Only one process loads `TracyServerBindings` regardless of how many editor windows are open; subsequent launches detect the port is taken and exit immediately.
+The server runs as a singleton on Streamable HTTP transport (port 47380 by default). Only one process loads `TracyServerBindings` regardless of how many editor windows are open; subsequent launches detect the port is taken and exit immediately. Set `TRACY_MCP_TRANSPORT=sse` before launching to use the legacy SSE transport instead.
 
 The server prints its URL on startup and writes it to `extra/mcp/tracy_mcp.port`:
 
-    Tracy MCP listening on http://127.0.0.1:47380/sse
+    Tracy MCP listening on http://127.0.0.1:47380/mcp
 
 Configure your AI assistant using that URL. For example, for a JSON-based MCP configuration:
 
     {
       "mcpServers": {
         "tracy": {
-          "url": "http://127.0.0.1:47380/sse"
+          "url": "http://127.0.0.1:47380/mcp"
         }
       }
     }
@@ -2525,17 +2584,17 @@ To collect frame images, use `tracy_image(image, w, h, offset, flip)` call.
 
 Use the following calls in your implementations of allocator/deallocator:
 
-- `tracy_memory_alloc(ptr, size, name, depth, secure)`
+- `tracy_memory_alloc(ptr, size, name, depth)`
 
-- `tracy_memory_free(ptr, name, depth, secure)`
+- `tracy_memory_free(ptr, name, depth)`
 
 Correctly using this functionality can be pretty tricky especially in Fortran. In Fortran, you can not redefine `allocate` statement (as well as `deallocate` statement) to profile memory usage by `allocatable` variables. However, many applications[^58] uses stack allocator on memory tape where these calls can be useful.
 
 [^58]: Examples from Quantum Chemistry: GAMESS(US), MRCC
 
-Memory pools (section [3.8.1](#memorypools)) are supported through optional argument `name` which must be a null-terminated constant string.
+Memory pools (section [3.9.1](#memorypools)) are supported through optional argument `name` which must be a null-terminated constant string.
 
-For more information about memory profiling, refer to section [3.8](#memoryprofiling). For memory allocations implemented in C++/C, refer to section [3.8](#memoryprofiling) and section [3.13.5](#cmemoryprofiling), respectively.
+For more information about memory profiling, refer to section [3.9](#memoryprofiling). For memory allocations implemented in C++/C, refer to section [3.9](#memoryprofiling) and section [3.14.5](#cmemoryprofiling), respectively.
 
 ### Plots and messages
 
@@ -2551,19 +2610,19 @@ To send additional markup in form of plot data points or messages use the follow
 
 Note, `name` must be a null-terminated constant string, while `msg` and `info` are any Fortran strings.
 
-Consult sections [3.6](#plottingdata) and [3.7](#messagelog) for more information.
+Consult sections [3.7](#plottingdata) and [3.8](#messagelog) for more information.
 
 ### Fibers
 
-Fibers are available in the Fortran API through the `tracy_fiber_enter(name)` and `tracy_fiber_leave()` calls. To use them, you should observe the requirements listed in section [3.10](#fibers). Note, `name` must be a null-terminated constant string.
+Fibers are available in the Fortran API through the `tracy_fiber_enter(name)` and `tracy_fiber_leave()` calls. To use them, you should observe the requirements listed in section [3.11](#fibers). Note, `name` must be a null-terminated constant string.
 
 ### Connection Status
 
-To query the connection status (section [3.20](#connectionstatus)) using the Fortran API you should use the `tracy_connected()` function.
+To query the connection status (section [3.21](#connectionstatus)) using the Fortran API you should use the `tracy_connected()` function.
 
 ### Call stacks
 
-You can collect call stacks of zones and memory allocation events, as described in section [3.11](#collectingcallstacks), by using optional `depth` argument in functions/subroutines calls.
+You can collect call stacks of zones and memory allocation events, as described in section [3.12](#collectingcallstacks), by using optional `depth` argument in functions/subroutines calls.
 
 ### Colors
 
@@ -2579,7 +2638,7 @@ Some profiling data can only be retrieved using the kernel facilities, which are
 
 [^59]: To make this easier, you can run MSVC with admin privileges, which will be inherited by your program when you start it from within the IDE.
 
-As this system-level tracing functionality is part of the automated collection process, no user intervention is necessary to enable it (assuming that the program was granted the rights needed). However, if, for some reason, you would want to prevent your application from trying to access kernel data, you may recompile your program with the `TRACY_NO_SYSTEM_TRACING` define. If you want to disable this functionality dynamically at runtime instead, you can set the `TRACY_NO_SYSTEM_TRACING` environment variable to \"1\".
+As this system-level tracing functionality is part of the automated collection process, no user intervention is necessary to enable it (assuming that the program was granted the rights needed). However, if, for some reason, you would want to prevent your application from trying to access kernel data, you may recompile your program with the `TRACY_NO_SYSTEM_TRACING` define. If you want to disable this functionality dynamically at runtime instead, you can set the `TRACY_NO_SYSTEM_TRACING` environment variable to "1".
 
 > [!TIP]
 > **What should be granted privileges?**
@@ -2590,7 +2649,7 @@ As this system-level tracing functionality is part of the automated collection p
 
 ### CPU usage
 
-System-wide CPU load is gathered with relatively high granularity (one reading every 100 ms). The readings are available as a plot (see section [5.2.3.3.7](#plots)). Note that this parameter considers all applications running on the system, not only the profiled program.
+System-wide CPU load is gathered with relatively high granularity (one reading every 100 ms). The readings are available as a plot (see section [5.2.3.4.7](#plots)). Note that this parameter considers all applications running on the system, not only the profiled program.
 
 ### Context switches {#contextswitches}
 
@@ -2602,11 +2661,11 @@ To solve this problem, Tracy collects context switch[^60] information. This data
 
 [^60]: A context switch happens when any given CPU core stops executing one thread and starts running another one.
 
-You may disable context switch data capture by adding the `TRACY_NO_CONTEXT_SWITCH` define to the client. Since with this feature you are observing other programs, you can only use it after privilege elevation, which is described in section [3.17.1](#privilegeelevation).
+You may disable context switch data capture by adding the `TRACY_NO_CONTEXT_SWITCH` define to the client. Since with this feature you are observing other programs, you can only use it after privilege elevation, which is described in section [3.18.1](#privilegeelevation).
 
 ### CPU topology {#cputopology}
 
-Tracy may discover CPU topology data to provide further information about program performance characteristics. It is handy when combined with context switch information (section [3.17.3](#contextswitches)).
+Tracy may discover CPU topology data to provide further information about program performance characteristics. It is handy when combined with context switch information (section [3.18.3](#contextswitches)).
 
 In essence, the topology information gives you context about what any given *logical CPU* really is and how it relates to other logical CPUs. The topology hierarchy consists of packages, dies, cores, and threads.
 
@@ -2633,7 +2692,7 @@ Knowing which package and core any logical CPU belongs to enables many insights.
 
 Manual markup of zones doesn't cover every function existing in a program and cannot be performed in system libraries or the kernel. This can leave blank spaces on the trace, leaving you no clue what the application was doing. However, Tracy can periodically inspect the state of running threads, providing you with a snapshot of the call stack at the time when sampling was performed. While this information doesn't have the fidelity of manually inserted zones, it can sometimes give you an insight into where to go next.
 
-This feature requires privilege elevation on Windows, but not on Linux. However, running as root on Linux will also provide you the kernel stack traces. Additionally, you should review chapter [3.11](#collectingcallstacks) to see if you have proper setup for the required program debugging data.
+This feature requires privilege elevation on Windows, but not on Linux. However, running as root on Linux will also provide you the kernel stack traces. Additionally, you should review chapter [3.12](#collectingcallstacks) to see if you have proper setup for the required program debugging data.
 
 By default, sampling is performed at 8 kHz frequency on Windows (the maximum possible value). On Linux and Android, it is performed at 10 kHz[^62]. You can change this value by providing the sampling frequency (in Hz) through the `TRACY_SAMPLING_HZ` macro.
 
@@ -2677,11 +2736,11 @@ While the call stack sampling is a generic software-implemented functionality of
 
 Tracy can use these counters to present you the following three statistics, which may help guide you in discovering why your code is not as fast as possible:
 
-1.  *Instructions Per Cycle (IPC)* -- shows how many instructions were executing concurrently within a single core cycle. Higher values are better. The maximum achievable value depends on the design of the CPU, including things such as the number of execution units and their individual capabilities. Calculated as $\frac{\text{\#instructions retired}}{\text{\#cycles}}$. You can disable it with the `TRACY_NO_SAMPLE_RETIREMENT` macro.
+1.  *Instructions Per Cycle (IPC)* -- shows how many instructions were executing concurrently within a single core cycle. Higher values are better. The maximum achievable value depends on the design of the CPU, including things such as the number of execution units and their individual capabilities. Calculated as #instructions retired / #cycles. You can disable it with the `TRACY_NO_SAMPLE_RETIREMENT` macro.
 
-2.  *Branch miss rate* -- shows how frequently the CPU branch predictor makes a wrong choice. Lower values are better. Calculated as $\frac{\text{\#branch misses}}{\text{\#branch instructions}}$. You can disable it with the `TRACY_NO_SAMPLE_BRANCH` macro.
+2.  *Branch miss rate* -- shows how frequently the CPU branch predictor makes a wrong choice. Lower values are better. Calculated as #branch misses / #branch instructions. You can disable it with the `TRACY_NO_SAMPLE_BRANCH` macro.
 
-3.  *Cache miss rate* -- shows how frequently the CPU has to retrieve data from memory. Lower values are better. The specifics of which cache level is taken into account here vary from one implementation to another. Calculated as $\frac{\text{\#cache misses}}{\text{\#cache references}}$. You can disable it with the `TRACY_NO_SAMPLE_CACHE` macro.
+3.  *Cache miss rate* -- shows how frequently the CPU has to retrieve data from memory. Lower values are better. The specifics of which cache level is taken into account here vary from one implementation to another. Calculated as #cache misses / #cache references. You can disable it with the `TRACY_NO_SAMPLE_CACHE` macro.
 
 Each performance counter has to be collected by a dedicated Performance Monitoring Unit (PMU). However, the availability of PMUs is very limited, so you may not be able to capture all the statistics mentioned above at the same time (as each requires capture of two different counters). In such a case, you will need to manually select what needs to be sampled with the macros specified above.
 
@@ -2716,7 +2775,7 @@ It would be best to be extra careful when working with non-public code, as parts
 
 ### Vertical synchronization
 
-On Windows and Linux, Tracy will automatically capture hardware Vsync events, provided that the application has access to the kernel data (privilege elevation may be needed, see section [3.17.1](#privilegeelevation)). These events will be reported as '`[x] Vsync`' frame sets, where `x` is the identifier of a specific monitor. Note that hardware vertical synchronization might not correspond to the one seen by your application due to desktop composition, command queue buffering, and so on. Also, in some instances, when there is nothing to update on the screen, the graphic driver may choose to stop issuing screen refresh. As a result, there may be periods where no vertical synchronization events are reported.
+On Windows and Linux, Tracy will automatically capture hardware Vsync events, provided that the application has access to the kernel data (privilege elevation may be needed, see section [3.18.1](#privilegeelevation)). These events will be reported as "`[x] Vsync`" frame sets, where `x` is the identifier of a specific monitor. Note that hardware vertical synchronization might not correspond to the one seen by your application due to desktop composition, command queue buffering, and so on. Also, in some instances, when there is nothing to update on the screen, the graphic driver may choose to stop issuing screen refresh. As a result, there may be periods where no vertical synchronization events are reported.
 
 Use the `TRACY_NO_VSYNC_CAPTURE` macro to disable capture of Vsync events.
 
@@ -2726,18 +2785,29 @@ Sometimes it is desired to change how the profiled application behaves during th
 
     void Callback(void* data, uint32_t idx, int32_t val)
 
-The `data` parameter will have the same value as was specified in the macro. The `idx` argument is an user-defined parameter index and `val` is the value set in the profiler user interface.
+The `data` parameter will have the same value as was specified in the macro. The `idx` argument is an user-defined parameter index and `val` is the value set in the profiler user interface (in the connection information popup, see section [4.4.2](#connectionpopup)).
 
-To specify individual parameters, use the `TracyParameterSetup(idx, name, isBool, val)` macro. The `idx` value will be passed to the callback function for identification purposes (Tracy doesn't care what it's set to). `Name` is the parameter label, displayed on the list of parameters. Finally, `isBool` determines if `val` should be interpreted as a boolean value, or as an integer number.
+To specify individual parameters, use the `TracyParameterSetup(idx, name, type, val)` macro. The `idx` value will be passed to the callback function for identification purposes (Tracy doesn't care what it's set to), `name` is the parameter label, displayed on the list of parameters, and `val` is the initial value. Finally, `type` determines how to interpret the `val` value, and can be selected from:
+
+- `TracyParamTypeInt` -- `val` is an integer value, with the profiler UI displaying a numerical entry field.
+
+- `TracyParamTypeBool` -- `val` is a boolean value, with a checkbox in the user interface.
+
+- `TracyParamTypeTrigger` -- a * Trigger* button is displayed, for cases when you just want some action to happen. Repeats the initial `val` value provided to the setup function.
 
 > [!IMPORTANT]
 > **Important**
 >
 > Usage of trace parameters makes profiling runs dependent on user interaction with the profiler, and thus it's not recommended to be employed if a consistent profiling environment is desired. Furthermore, interaction with the parameters is only possible in the graphical profiling application but not in the command line capture utility.
 
+
+-----
+
+ - Circle Dot icon
+
 ## Source contents callback
 
-Tracy performs several data discovery attempts to show you the source file contents associated with the executed program, which is explained in more detail in chapter [5.16](#sourceview). However, sometimes the source files cannot be accessed without your help. For example, you may want to profile a script that is loaded by the game and which only resides in an archive accessible only by your program. Accordingly, Tracy allows inserting your own custom step at the end of the source discovery chain, with the `TracySourceCallbackRegister(callback, data)` macro, where `callback` is a function conforming to the following signature:
+Tracy performs several data discovery attempts to show you the source file contents associated with the executed program, which is explained in more detail in chapter [5.17](#sourceview). However, sometimes the source files cannot be accessed without your help. For example, you may want to profile a script that is loaded by the game and which only resides in an archive accessible only by your program. Accordingly, Tracy allows inserting your own custom step at the end of the source discovery chain, with the `TracySourceCallbackRegister(callback, data)` macro, where `callback` is a function conforming to the following signature:
 
     char* Callback(void* data, const char* filename, size_t& size)
 
@@ -2866,7 +2936,7 @@ The * Wrench* button opens the about dialog, which also contains a number of 
 
 The client *address entry* field and the  *Connect* button are used to connect to a running client[^66]. You can use the connection history button  to display a list of commonly used targets, from which you can quickly select an address. You can remove entries from this list by hovering the  mouse cursor over an entry and pressing the Delete button on the keyboard.
 
-[^66]: Note that a custom port may be provided here, for example by entering '127.0.0.1:1234'.
+[^66]: Note that a custom port may be provided here, for example by entering "127.0.0.1:1234".
 
 If you want to open a trace that you have stored on the disk, you can do so by pressing the  *Open saved trace* button.
 
@@ -2918,7 +2988,7 @@ You can also adjust some settings that affect global profiler behavior in this w
 
 - *Zone name shortening* -- Sets the default zone name shortening behavior used in new traces. See section [5.4](#options) for more information.
 
-- *Scroll multipliers* -- Allows you to fine-tune the sensitivity of the horizontal and vertical scroll in the timeline. The default values ($1.0$) are an attempt at the best possible settings, but differences in hardware manufacturers, platform implementations, and user expectations may require adjustments.
+- *Scroll multipliers* -- Allows you to fine-tune the sensitivity of the horizontal and vertical scroll in the timeline. The default values (1.0) are an attempt at the best possible settings, but differences in hardware manufacturers, platform implementations, and user expectations may require adjustments.
 
 - *Memory limit* -- When enabled, profiler will stop recording data when memory usage exceeds the specified percentage of the total system memory. This mechanism does not measure the current system memory usage or limits. The upper value is not capped, as you may use swap. See section [4.6](#memoryusage) for more information.
 
@@ -2951,7 +3021,7 @@ You can use the  *Save trace* button to save the current profile data to a fi
 
 If frame image capture has been implemented (chapter [3.3.3](#frameimages)), a thumbnail of the last received frame image will be provided for reference.
 
-Suppose the profiled application opted to provide trace parameters (see section [3.18](#traceparameters)) and the connection is still active. In that case, this pop-up will also contain a *trace parameters* section, listing all the provided options. A callback function will be executed on the client when you change any value here.
+Suppose the profiled application opted to provide trace parameters (see section [3.19](#traceparameters)) and the connection is still active. In that case, this pop-up will also contain a *Trace parameters* section, listing all the provided options. A callback function will be executed on the client when you change any value here.
 
 
 -----
@@ -3004,52 +3074,46 @@ The `update` utility supports optional higher levels of data compression, which 
 
 - `-z level` -- selects Zstandard algorithm, with a specified compression level.
 
-::: {#compressiontimes}
-    **Mode**     **Size**    **Ratio**   **Save time**   **Load time**
-  ------------- ----------- ----------- --------------- ---------------
-       lz4       162.48 MB    17.19%        1.91 s          470 ms
-     lz4 hc      77.33 MB      8.18%        39.24 s         401 ms
-   lz4 extreme   72.67 MB      7.68%         4:30           406 ms
-     zstd 1      63.17 MB      6.68%        2.27 s          868 ms
-     zstd 2      63.29 MB      6.69%        2.31 s          884 ms
-     zstd 3      62.94 MB      6.65%        2.43 s          867 ms
-     zstd 4      62.81 MB      6.64%        2.44 s          855 ms
-     zstd 5      61.04 MB      6.45%        3.98 s          855 ms
-     zstd 6      60.27 MB      6.37%        4.19 s          827 ms
-     zstd 7      61.53 MB      6.5%          6.6 s          761 ms
-     zstd 8      60.44 MB      6.39%        7.84 s          746 ms
-     zstd 9      59.58 MB      6.3%          9.6 s          724 ms
-     zstd 10     59.36 MB      6.28%        10.29 s         706 ms
-     zstd 11      59.2 MB      6.26%        11.23 s         717 ms
-     zstd 12     58.51 MB      6.19%        15.43 s         695 ms
-     zstd 13     56.16 MB      5.94%        35.55 s         642 ms
-     zstd 14     55.76 MB      5.89%        37.74 s         627 ms
-     zstd 15     54.65 MB      5.78%         1:01           600 ms
-     zstd 16     50.94 MB      5.38%         1:34           537 ms
-     zstd 17     50.18 MB      5.30%         1:44           542 ms
-     zstd 18     49.91 MB      5.28%         2:17           554 ms
-     zstd 19     46.99 MB      4.97%         7:09           605 ms
-     zstd 20     46.81 MB      4.95%         7:08           608 ms
-     zstd 21     45.77 MB      4.84%         13:01          614 ms
-     zstd 22     45.52 MB      4.81%         15:11          621 ms
+|  **Mode**   | **Size**  | **Ratio** | **Save time** | **Load time** |
+|:-----------:|:---------:|:---------:|:-------------:|:-------------:|
+|     lz4     | 162.48 MB |  17.19%   |    1.91 s     |    470 ms     |
+|   lz4 hc    | 77.33 MB  |   8.18%   |    39.24 s    |    401 ms     |
+| lz4 extreme | 72.67 MB  |   7.68%   |     4:30      |    406 ms     |
+|   zstd 1    | 63.17 MB  |   6.68%   |    2.27 s     |    868 ms     |
+|   zstd 2    | 63.29 MB  |   6.69%   |    2.31 s     |    884 ms     |
+|   zstd 3    | 62.94 MB  |   6.65%   |    2.43 s     |    867 ms     |
+|   zstd 4    | 62.81 MB  |   6.64%   |    2.44 s     |    855 ms     |
+|   zstd 5    | 61.04 MB  |   6.45%   |    3.98 s     |    855 ms     |
+|   zstd 6    | 60.27 MB  |   6.37%   |    4.19 s     |    827 ms     |
+|   zstd 7    | 61.53 MB  |   6.5%    |     6.6 s     |    761 ms     |
+|   zstd 8    | 60.44 MB  |   6.39%   |    7.84 s     |    746 ms     |
+|   zstd 9    | 59.58 MB  |   6.3%    |     9.6 s     |    724 ms     |
+|   zstd 10   | 59.36 MB  |   6.28%   |    10.29 s    |    706 ms     |
+|   zstd 11   |  59.2 MB  |   6.26%   |    11.23 s    |    717 ms     |
+|   zstd 12   | 58.51 MB  |   6.19%   |    15.43 s    |    695 ms     |
+|   zstd 13   | 56.16 MB  |   5.94%   |    35.55 s    |    642 ms     |
+|   zstd 14   | 55.76 MB  |   5.89%   |    37.74 s    |    627 ms     |
+|   zstd 15   | 54.65 MB  |   5.78%   |     1:01      |    600 ms     |
+|   zstd 16   | 50.94 MB  |   5.38%   |     1:34      |    537 ms     |
+|   zstd 17   | 50.18 MB  |   5.30%   |     1:44      |    542 ms     |
+|   zstd 18   | 49.91 MB  |   5.28%   |     2:17      |    554 ms     |
+|   zstd 19   | 46.99 MB  |   4.97%   |     7:09      |    605 ms     |
+|   zstd 20   | 46.81 MB  |   4.95%   |     7:08      |    608 ms     |
+|   zstd 21   | 45.77 MB  |   4.84%   |     13:01     |    614 ms     |
+|   zstd 22   | 45.52 MB  |   4.81%   |     15:11     |    621 ms     |
 
-  : Compression results for an example trace.\
-  Tests performed on Ryzen 9 3900X.
-:::
+_Compression results for an example trace.\
+Tests performed on Ryzen 9 3900X._
 
 <figure id="savetime">
-<div class="minipage">
 <figure id="savesize" data-latex-placement="H">
 
 <figcaption>Plot of trace sizes for different compression modes (see table <a href="#compressiontimes">8</a>).</figcaption>
 </figure>
-</div>
-<div class="minipage">
 <figure id="savetime" data-latex-placement="H">
 
 <figcaption>Logarithmic plot of trace compression times for different compression modes (see table <a href="#compressiontimes">8</a>).</figcaption>
 </figure>
-</div>
 <figcaption>Logarithmic plot of trace compression times for different compression modes (see table <a href="#compressiontimes">8</a>).</figcaption>
 </figure>
 
@@ -3068,37 +3132,33 @@ Saving and loading trace data can be parallelized using the `-j streams` paramet
 
 Going overboard with the number of streams is not recommended, especially with the fast compression modes where it will be difficult to keep each stream busy. Also, complex compression codecs (e.g. zstd at level 22) have significantly worse compression rates when the work is divided. This is a fairly nuanced topic, and you are encouraged to do your own measurements, but for a rough guideline on the behavior, you can refer to tables [9](#streamsize) and [10](#streamspeedup).
 
-::: {#streamsize}
-              **4**     **8**    **16**    **32**
-  --------- --------- --------- --------- ---------
-     lz4     100.30%   100.30%   100.61%   102.73%
-   lz4 hc    100.80%   101.20%   101.61%   102.41%
-   lz4 ext   100.40%   101.21%   101.62%   102.02%
-   zstd 1    100.90%   101.36%   101.81%   102.26%
-   zstd 3    100.51%   101.02%   101.53%   102.04%
-   zstd 6    100.55%   101.10%   101.65%   102.75%
-   zstd 9    101.27%   103.16%   105.06%   108.23%
-   zstd 18   103.08%   106.15%   109.23%   115.38%
-   zstd 22   107.08%   113.27%   122.12%   130.97%
+|         |  **4**  |  **8**  | **16**  | **32**  |
+|:-------:|:-------:|:-------:|:-------:|:-------:|
+|   lz4   | 100.30% | 100.30% | 100.61% | 102.73% |
+| lz4 hc  | 100.80% | 101.20% | 101.61% | 102.41% |
+| lz4 ext | 100.40% | 101.21% | 101.62% | 102.02% |
+| zstd 1  | 100.90% | 101.36% | 101.81% | 102.26% |
+| zstd 3  | 100.51% | 101.02% | 101.53% | 102.04% |
+| zstd 6  | 100.55% | 101.10% | 101.65% | 102.75% |
+| zstd 9  | 101.27% | 103.16% | 105.06% | 108.23% |
+| zstd 18 | 103.08% | 106.15% | 109.23% | 115.38% |
+| zstd 22 | 107.08% | 113.27% | 122.12% | 130.97% |
 
-  : The increase in file size for different compression modes, as compared to a single stream.
-:::
+_The increase in file size for different compression modes, as compared to a single stream._
 
-::: {#streamspeedup}
-             **4**   **8**   **16**   **32**
-  --------- ------- ------- -------- --------
-     lz4     2.04    2.52     2.11     3.24
-   lz4 hc    3.56    6.73     9.49    15.26
-   lz4 ext   3.38    6.53     9.57    17.03
-   zstd 1    2.24    3.68     3.40     3.37
-   zstd 3    3.23    4.13     4.07     4.50
-   zstd 6    3.52    6.00     6.53     6.95
-   zstd 9    3.10    4.26     5.12     5.40
-   zstd 18   3.22    5.41     8.49    14.51
-   zstd 22   3.99    7.47    11.10    18.20
+|         | **4** | **8** | **16** | **32** |
+|:-------:|:-----:|:-----:|:------:|:------:|
+|   lz4   | 2.04  | 2.52  |  2.11  |  3.24  |
+| lz4 hc  | 3.56  | 6.73  |  9.49  | 15.26  |
+| lz4 ext | 3.38  | 6.53  |  9.57  | 17.03  |
+| zstd 1  | 2.24  | 3.68  |  3.40  |  3.37  |
+| zstd 3  | 3.23  | 4.13  |  4.07  |  4.50  |
+| zstd 6  | 3.52  | 6.00  |  6.53  |  6.95  |
+| zstd 9  | 3.10  | 4.26  |  5.12  |  5.40  |
+| zstd 18 | 3.22  | 5.41  |  8.49  | 14.51  |
+| zstd 22 | 3.99  | 7.47  | 11.10  | 18.20  |
 
-  : The speedup (*x* times faster) in saving time for different modes of compression, as compared to a single stream.
-:::
+_The speedup (*x* times faster) in saving time for different modes of compression, as compared to a single stream._
 
 ### Frame images dictionary {#fidict}
 
@@ -3136,7 +3196,7 @@ Flags can be concatenated. For example specifying `-s CSi` will remove symbol co
 
 Sometimes access to source files may not be possible during the capture. This may be due to capturing the trace on a machine without the source files on disk, use of paths relative to the build directory, clash of file location schemas (e.g., on Windows, you can have native paths, like `C:\directory\file` and WSL paths, like `/mnt/c/directory/file`, pointing to the same file), and so on.
 
-You may force a recheck of the source file availability during the update process with the `-c` command line parameter. All the source files missing from the cache will be then scanned again and added to the cache if they do pass the validity checks (see section [5.16](#sourceview)).
+You may force a recheck of the source file availability during the update process with the `-c` command line parameter. All the source files missing from the cache will be then scanned again and added to the cache if they do pass the validity checks (see section [5.17](#sourceview)).
 
 ## Instrumentation failures {#instrumentationfailures}
 
@@ -3152,7 +3212,7 @@ The workflow is identical, whether you are viewing a previously saved trace or i
 
 In most cases Tracy will display an approximation of time value, depending on how big it is. For example, a short time range will be displayed as 123 ns, and some longer ones will be shortened to 123.45 μs, 123.45 ms, 12.34 s, 1:23.4, 12:34:56, or even 1d12:34:56 to indicate more than a day has passed.
 
-While such a presentation makes time values easy to read, it is not always appropriate. For example, you may have multiple events happen at a time approximated to 1:23.4, giving you the precision of only $\sfrac{1}{10}$ of a second. And there's certainly a lot that can happen in 100 ms.
+While such a presentation makes time values easy to read, it is not always appropriate. For example, you may have multiple events happen at a time approximated to 1:23.4, giving you the precision of only 1/10 of a second. And there's certainly a lot that can happen in 100 ms.
 
 An alternative time display is used in appropriate places to solve this problem. It combines a day--hour--minute--second value with full nanosecond resolution, resulting in values such as 1:23 456,789,012 ns.
 
@@ -3181,13 +3241,13 @@ The control menu (top row of buttons) provides access to various profiler featur
 
 - * Options* -- Toggles the settings menu (section [5.4](#options)).
 
-- * Messages* -- Toggles the message log window (section [5.5](#messages)), which displays custom messages sent by the client, as described in section [3.7](#messagelog).
+- * Messages* -- Toggles the message log window (section [5.5](#messages)), which displays custom messages sent by the client, as described in section [3.8](#messagelog).
 
 - * Find* -- This buttons toggles the find zone window, which allows inspection of zone behavior statistics (section [5.7](#findzone)).
 
 - * Statistics* -- Toggles the statistics window, which displays zones sorted by their total time cost (section [5.6](#statistics)).
 
-- * Flame* -- Enables the flame graph window (section [5.9](#flamegraph)).
+- * Flame* -- Enables the flame graph window (section [5.9](#flamegraph)).
 
 - * Memory* -- Various memory profiling options may be accessed here (section [5.10](#memorywindow)).
 
@@ -3197,15 +3257,17 @@ The control menu (top row of buttons) provides access to various profiler featur
 
 - * Tools* -- Allows access to optional data collected during capture. Some choices might be unavailable.
 
-  - * Playback* -- If frame images were captured (section [3.3.3](#frameimages)), you will have option to open frame image playback window, described in chapter [5.19](#playback).
+  - * Playback* -- If frame images were captured (section [3.3.3](#frameimages)), you will have option to open frame image playback window, described in chapter [5.20](#playback).
 
-  - * CPU data* -- If context switch data was captured (section [3.17.3](#contextswitches)), this button will allow inspecting what was the processor load during the capture, as described in section [5.20](#cpudata).
+  - * CPU data* -- If context switch data was captured (section [3.18.3](#contextswitches)), this button will allow inspecting what was the processor load during the capture, as described in section [5.21](#cpudata).
 
-  - * Annotations* -- If annotations have been made (section [5.3.1](#annotatingtrace)), you can open a list of all annotations, described in chapter [5.22](#annotationlist).
+  - * Annotations* -- If annotations have been made (section [5.3.1](#annotatingtrace)), you can open a list of all annotations, described in chapter [5.23](#annotationlist).
 
   - * Limits* -- Displays time range limits window (section [5.3](#timeranges)).
 
-  - * Wait stacks* -- If sampling was performed, an option to display wait stacks may be available. See chapter [3.17.5.1](#waitstacks) for more details.
+  - * Wait stacks* -- If sampling was performed, an option to display wait stacks may be available. See chapter [3.18.5.1](#waitstacks) for more details.
+
+  - * Frame statistics* -- Display frame statistics window (section [5.14](#framestatistics)).
 
 - * User manual* -- Opens the user manual for quick reference. Note that the version of the user manual available directly in the profiler is an inferior quality version compared to the proper PDF.
 
@@ -3237,7 +3299,7 @@ The following three items show the * view time range*, the * time span* of
  - Comment icon
  - Magnifying Glass icon
  - Arrow Up Wide Short icon
- - Fire icon
+ - Fire Flame Curved icon
  - Memory icon
  - Scale Balanced icon
  - Fingerprint icon
@@ -3246,6 +3308,7 @@ The following three items show the * view time range*, the * time span* of
  - Note Sticky icon
  - Ruler icon
  - Hourglass Half icon
+ - Images icon
  - Book icon
  - Robot icon
  - Caret Left icon
@@ -3258,7 +3321,7 @@ The following three items show the * view time range*, the * time span* of
 
 The notification area displays informational notices, for example, how long it took to load a trace from the disk. The three pulsing dots indicator shows that some background tasks are being performed that may need to be completed before full capabilities of the profiler are available. If a crash was captured during profiling (section [2.5](#crashhandling)), a * crash* icon will be displayed. You can click this icon to see the crash call stack. The red  icon indicates that queries are currently being backlogged, while the same yellow icon indicates that some queries are currently in-flight (see chapter [4.4.2](#connectionpopup) for more information).
 
-If the drawing of timeline elements was disabled in the options menu (section [5.4](#options)), the profiler will use the following orange icons to remind you about that fact. Click on the icons to enable drawing of the selected elements. Note that collapsed labels (section [5.2.3.3](#zoneslocksplots)) are not taken into account here.
+If the drawing of timeline elements was disabled in the options menu (section [5.4](#options)), the profiler will use the following orange icons to remind you about that fact. Click on the icons to enable drawing of the selected elements. Note that collapsed labels (section [5.2.3.4](#zoneslocksplots)) are not taken into account here.
 
 -  -- Display of empty labels is enabled.
 
@@ -3322,7 +3385,7 @@ Moving the  mouse cursor over the frames displayed on the graph will display 
 
 You may focus the timeline view on the frames by clicking or dragging the left mouse button on the graph. The graph may be scrolled left and right by dragging the right mouse button over the graph. Finally, you may zoom the view in and out by using the mouse wheel. If the view is zoomed out, so that multiple frames are merged into one column, the profiler will use the highest frame time to represent the given column.
 
-Clicking the left mouse button on the graph while the Ctrl key is pressed will open the frame image playback window (section [5.19](#playback)) and set the playback to the selected frame. See section [3.3.3](#frameimages) for more information about frame images.
+Clicking the left mouse button on the graph while the Ctrl key is pressed will open the frame image playback window (section [5.20](#playback)) and set the playback to the selected frame. See section [3.3.3](#frameimages) for more information about frame images.
 
 
 -----
@@ -3331,13 +3394,13 @@ Clicking the left mouse button on the graph while the Ctrl key is pressed will 
 
 ### Timeline view
 
-The timeline is the most crucial element of the profiler UI. All the captured data is displayed there, laid out on the horizontal axis, according to time flow. Where there was no profiling performed, the timeline is dimmed out. The view is split into three parts: the time scale, the frame sets, and the combined zones, locks, and plots display.
+The timeline is the most crucial element of the profiler UI. All the captured data is displayed there, laid out on the horizontal axis, according to time flow. Where there was no profiling performed, the timeline is dimmed out. The view is split into four parts: time scale, frame sets, sections, and the combined zones, locks, and plots display.
 
 ##### Collapsed items {#collapseditems}
 
 Due to extreme differences in time scales, you will almost constantly see events too small to be displayed on the screen. Such events have preset minimum size (so they can be seen) and are marked with a zig-zag pattern to indicate that you need to zoom in to see more detail.
 
-The zig-zag pattern can be seen applied to frame sets on figure [17](#framesetsfig), and zones on figure [18](#zoneslocks).
+The zig-zag pattern can be seen applied to frame sets on figure [17](#framesetsfig), and zones on figure [20](#zoneslocks).
 
 #### Time scale
 
@@ -3372,7 +3435,7 @@ You can also see frame separators are projected down to the rest of the timeline
 
 Clicking the middle mouse button on a frame will zoom the view to the extent of the frame.
 
-If a frame has an associated frame image (see chapter [3.3.3](#frameimages)), you can hold the Ctrl key and click the left mouse button on the frame to open the frame image playback window (see chapter [5.19](#playback)) and set the playback to the selected frame.
+If a frame has an associated frame image (see chapter [3.3.3](#frameimages)), you can hold the Ctrl key and click the left mouse button on the frame to open the frame image playback window (see chapter [5.20](#playback)) and set the playback to the selected frame.
 
 If the * Draw frame targets* option is enabled (see section [5.4](#options)), time regions in frames exceeding the set target value will be marked with a red background.
 
@@ -3380,6 +3443,24 @@ If the * Draw frame targets* option is enabled (see section [5.4](#options))
 -----
 
  - Flag Checkered icon
+
+#### Sections
+
+If sections of program execution were marked (see chapter [3.5](#markingsections)), the profiler will try to reconstruct a child-parent hierarchy between the sections, as presented on figure [18](#figsections).
+
+<figure id="figsections" data-latex-placement="h">
+
+<figcaption>Sections showing a hierarchy.</figcaption>
+</figure>
+
+With some data sets such reconstruction will not be possible, in which case sections may look as on figure [19](#figsections2).
+
+<figure id="figsections2" data-latex-placement="h">
+
+<figcaption>Sections that cannot form a hierarchy.</figcaption>
+</figure>
+
+Clicking the middle mouse button on a section will zoom the view to the extent of the section.
 
 #### Zones, locks and plots display {#zoneslocksplots}
 
@@ -3392,13 +3473,13 @@ You will find the zones with locks and their associated threads on this combined
 
 The left-hand side *index area* of the timeline view displays various labels (threads, locks), which can be categorized in the following way:
 
-- *Light blue label* -- GPU context. Multi-threaded Vulkan, OpenCL, Direct3D 12 and Metal contexts are additionally split into separate threads.
+- *Light blue label* -- GPU context. Multi-threaded Vulkan, OpenCL, Direct3D 12, Metal and WebGPU contexts are additionally split into separate threads.
 
 - *Pink label* -- CPU data graph.
 
-- *White label* -- A CPU thread. It will be replaced by a bright red label in a thread that has crashed (section [2.5](#crashhandling)). If automated sampling was performed, clicking the left mouse button on the * ghost zones* button will switch zone display mode between 'instrumented' and 'ghost.'
+- *White label* -- A CPU thread. It will be replaced by a bright red label in a thread that has crashed (section [2.5](#crashhandling)). If automated sampling was performed, clicking the left mouse button on the * ghost zones* button will switch zone display mode between "instrumented" and "ghost."
 
-- *Green label* -- Fiber, coroutine, or any other sort of cooperative multitasking 'green thread.'
+- *Green label* -- Fiber, coroutine, or any other sort of cooperative multitasking "green thread."
 
 - *Light red label* -- Indicates a lock.
 
@@ -3420,15 +3501,15 @@ Under the  symbol are a series of points that allow to limit the depth of the
 
 ##### Zones
 
-In an example in figure [18](#zoneslocks) you can see that there are two threads: *Main thread* and *Streaming thread*[^76]. We can see that the *Main thread* has two root level zones visible: *Update* and *Render*. The *Update* zone is split into further sub-zones, some of which are too small to be displayed at the current zoom level. This is indicated by drawing a zig-zag pattern over the merged zones box (section [5.2.3.0.1](#collapseditems)), with the number of collapsed zones printed in place of the zone name. We can also see that the *Physics* zone acquires the *Physics lock* mutex for most of its run time.
+In an example in figure [20](#zoneslocks) you can see that there are two threads: *Main thread* and *Streaming thread*[^76]. We can see that the *Main thread* has two root level zones visible: *Update* and *Render*. The *Update* zone is split into further sub-zones, some of which are too small to be displayed at the current zoom level. This is indicated by drawing a zig-zag pattern over the merged zones box (section [5.2.3.0.1](#collapseditems)), with the number of collapsed zones printed in place of the zone name. We can also see that the *Physics* zone acquires the *Physics lock* mutex for most of its run time.
 
 [^76]: By clicking on a thread name, you can temporarily disable the display of the zones in this thread.
 
-Meanwhile, the *Streaming thread* is performing some *Streaming jobs*. The first *Streaming job* sent a message (section [3.7](#messagelog)). In addition to being listed in the message log, it is indicated by a triangle over the thread separator. When multiple messages are in one place, the triangle outline shape changes to a filled triangle.
+Meanwhile, the *Streaming thread* is performing some *Streaming jobs*. The first *Streaming job* sent a message (section [3.8](#messagelog)). In addition to being listed in the message log, it is indicated by a triangle over the thread separator. When multiple messages are in one place, the triangle outline shape changes to a filled triangle.
 
-The GPU zones are displayed just like CPU zones, with an OpenGL/Vulkan/Direct3D/Metal/OpenCL context in place of a thread name.
+The GPU zones are displayed just like CPU zones, with an OpenGL / Vulkan / Direct3D / Metal / OpenCL / CUDA / WebGPU context in place of a thread name.
 
-Hovering the  mouse pointer over a zone will highlight all other zones that have the exact source location with a white outline. Clicking the left mouse button on a zone will open the zone information window (section [5.14](#zoneinfo)). Holding the Ctrl key and clicking the left mouse button on a zone will open the zone statistics window (section [5.7](#findzone)). Clicking the middle mouse button on a zone will zoom the view to the extent of the zone.
+Hovering the  mouse pointer over a zone will highlight all other zones that have the exact source location with a white outline. Clicking the left mouse button on a zone will open the zone information window (section [5.15](#zoneinfo)). Holding the Ctrl key and clicking the left mouse button on a zone will open the zone statistics window (section [5.7](#findzone)). Clicking the middle mouse button on a zone will zoom the view to the extent of the zone.
 
 
 -----
@@ -3437,15 +3518,15 @@ Hovering the  mouse pointer over a zone will highlight all other zones that h
 
 ##### Ghost zones
 
-You can enable the view of ghost zones (not pictured on figure [18](#zoneslocks), but similar to standard zones view) by clicking on the * ghost zones* icon next to the thread label, available if automated sampling (see chapter [3.17.5](#sampling)) was performed. Ghost zones will also be displayed by default if no instrumented zones are available for a given thread to help with pinpointing functions that should be instrumented.
+You can enable the view of ghost zones (not pictured on figure [20](#zoneslocks), but similar to standard zones view) by clicking on the * ghost zones* icon next to the thread label, available if automated sampling (see chapter [3.18.5](#sampling)) was performed. Ghost zones will also be displayed by default if no instrumented zones are available for a given thread to help with pinpointing functions that should be instrumented.
 
 Ghost zones represent true function calls in the program, periodically reported by the operating system. Due to the limited sampling resolution, you need to take great care when looking at reported timing data. While it may be apparent that some small function requires a relatively long time to execute, for example, 125 μs (8 kHz sampling rate), in reality, this time represents a period between taking two distinct samples, not the actual function run time. Similarly, two (or more) separate function calls may be represented as a single ghost zone because the profiler doesn't have the information needed to know about the actual lifetime of a sampled function.
 
-Another common pitfall to watch for is the order of presented functions. *It is not what you expect it to be!* Read chapter [5.15.1](#readingcallstacks) for critical insight on how call stacks might seem nonsensical at first and why they aren't.
+Another common pitfall to watch for is the order of presented functions. *It is not what you expect it to be!* Read chapter [5.16.1](#readingcallstacks) for critical insight on how call stacks might seem nonsensical at first and why they aren't.
 
 The available information about ghost zones is quite limited, but it's enough to give you a rough outlook on the execution of your application. The timeline view alone is more than any other statistical profiler can present. In addition, Tracy correctly handles inlined function calls, which are indicated by a darker background of ghost zones. Lastly, zones representing kernel-mode functions are displayed with red function names.
 
-Clicking the left mouse button on a ghost zone will open the corresponding source file location, if able (see chapter [5.16](#sourceview) for conditions). There are three ways in which source locations can be assigned to a ghost zone:
+Clicking the left mouse button on a ghost zone will open the corresponding source file location, if able (see chapter [5.17](#sourceview) for conditions). There are three ways in which source locations can be assigned to a ghost zone:
 
 1.  If the selected ghost zone is *not* an inline frame and its symbol data has been retrieved, the source location points to the function entry location (first line of the function).
 
@@ -3460,7 +3541,15 @@ Clicking the left mouse button on a ghost zone will open the corresponding sourc
 
 ##### Call stack samples
 
-The row of dots right below the *Main thread* label shows call stack sample points, which may have been automatically captured (see chapter [3.17.5](#sampling) for more detail). Hovering the  mouse pointer over each dot will display a short call stack summary while clicking on the dot with the left mouse button will open a more detailed call stack information window (see section [5.15](#callstackwindow)).
+The row of dots right below the thread label (*Main thread* in the example) shows call stack sample points, which may have been automatically captured (see chapter [3.18.5](#sampling) for more detail). Each sample is color-coded as follows:
+
+- *Green* -- shows samples inside the profiled program.
+
+- *Blue* -- indicates samples belonging to external libraries.
+
+- *Red* -- used for samples captured in the kernel.
+
+Hovering the  mouse pointer over each dot displays a short call stack summary, while clicking the dot with the left mouse button opens a more detailed call stack information window (see section [5.16](#callstackwindow)).
 
 
 -----
@@ -3469,13 +3558,13 @@ The row of dots right below the *Main thread* label shows call stack sample poin
 
 ##### Context switches {#context-switches}
 
-The thick line right below the samples represents context switch data (see section [3.17.3](#contextswitches)). We can see that the main thread, as displayed, starts in a suspended state, represented by the dotted region. Then it is woken up and starts execution of the `Update` zone. It is preempted amid the physics processing, which explains why there is an empty space between child zones. Then it is resumed again and continues execution into the `Render` zone, where it is preempted again, but for a shorter time. After rendering is done, the thread sleeps again, presumably waiting for the vertical blanking to indicate the next frame. Similar information is also available for the streaming thread.
+The thick line right below the samples represents context switch data (see section [3.18.3](#contextswitches)). We can see that the main thread, as displayed, starts in a suspended state, represented by the dotted region. Then it is woken up and starts execution of the `Update` zone. It is preempted amid the physics processing, which explains why there is an empty space between child zones. Then it is resumed again and continues execution into the `Render` zone, where it is preempted again, but for a shorter time. After rendering is done, the thread sleeps again, presumably waiting for the vertical blanking to indicate the next frame. Similar information is also available for the streaming thread.
 
 Context switch regions are using the following color key:
 
 - *Green* -- Thread is running.
 
-- *Red* -- Thread is waiting to be resumed by the scheduler. There are many reasons why a thread may be in the waiting state. Hovering the  mouse pointer over the region will display more information. If sampling was performed, the profiler might display a wait stack. See section [3.17.5.1](#waitstacks) for additional details.
+- *Red* -- Thread is waiting to be resumed by the scheduler. There are many reasons why a thread may be in the waiting state. Hovering the  mouse pointer over the region will display more information. If sampling was performed, the profiler might display a wait stack. See section [3.18.5.1](#waitstacks) for additional details.
 
 - *Blue* -- Thread is waiting to be resumed and is migrating to another CPU core. This might have visible performance effects because low-level CPU caches are not shared between cores, which may result in additional cache misses. To avoid this problem, you may pin a thread to a specific core by setting its affinity.
 
@@ -3494,7 +3583,7 @@ This label is only available if the profiler collected context switch data. It i
 
 The CPU load graph shows how much CPU resources were used at any given time during program execution. The green part of the graph represents threads belonging to the profiled application, and the gray part of the graph shows all other programs running in the system. Hovering the  mouse pointer over the graph will display a list of threads running on the CPU at the given time.
 
-Each line in the thread execution display represents a separate logical CPU thread. If CPU topology data is available (see section [3.17.4](#cputopology)), package and core assignment will be displayed in brackets, in addition to numerical processor identifier (i.e. `[`*`package`*`:`*`core`*`] CPU `*`thread`*). When a core is busy executing a thread, a zone will be drawn at the appropriate time. Zones are colored according to the following key:
+Each line in the thread execution display represents a separate logical CPU thread. If CPU topology data is available (see section [3.18.4](#cputopology)), package and core assignment will be displayed in brackets, in addition to numerical processor identifier (i.e. `[`*`package`*`:`*`core`*`] CPU `*`thread`*). When a core is busy executing a thread, a zone will be drawn at the appropriate time. Zones are colored according to the following key:
 
 - *Bright color* -- or *orange* if dynamic thread colors are disabled -- Thread tracked by the profiler.
 
@@ -3534,7 +3623,7 @@ Mutual exclusion zones are displayed in each thread that tries to acquire them. 
 
 [^77]: This region type is disabled by default and needs to be enabled in options (section [5.4](#options)).
 
-Hovering the  mouse pointer over a lock timeline will highlight the lock in all threads to help read the lock behavior. Hovering the  mouse pointer over a lock event will display important information, for example, a list of threads that are currently blocking or which are blocked by the lock. Clicking the left mouse button on a lock event or a lock label will open the lock information window, as described in section [5.18](#lockwindow). Clicking the middle mouse button on a lock event will zoom the view to the extent of the event.
+Hovering the  mouse pointer over a lock timeline will highlight the lock in all threads to help read the lock behavior. Hovering the  mouse pointer over a lock event will display important information, for example, a list of threads that are currently blocking or which are blocked by the lock. Clicking the left mouse button on a lock event or a lock label will open the lock information window, as described in section [5.19](#lockwindow). Clicking the middle mouse button on a lock event will zoom the view to the extent of the event.
 
 
 -----
@@ -3543,14 +3632,14 @@ Hovering the  mouse pointer over a lock timeline will highlight the lock in a
 
 ##### Plots
 
-The numerical data values (figure [20](#plotdisplay)) are plotted right below the zones and locks. Note that the minimum and maximum values currently displayed on the plot are visible on the screen, along with the y range of the plot and the number of drawn data points. The discrete data points are indicated with little rectangles. A filled rectangle indicates multiple data points.
+The numerical data values (figure [22](#plotdisplay)) are plotted right below the zones and locks. Note that the minimum and maximum values currently displayed on the plot are visible on the screen, along with the y range of the plot and the number of drawn data points. The discrete data points are indicated with little rectangles. A filled rectangle indicates multiple data points.
 
 <figure id="plotdisplay" data-latex-placement="h">
 
 <figcaption>Plot display.</figcaption>
 </figure>
 
-When memory profiling (section [3.8](#memoryprofiling)) is enabled, Tracy will automatically generate a * Memory usage* plot, which has extended capabilities. For example, hovering over a data point (memory allocation event) will visually display the allocation duration. Clicking the left mouse button on the data point will open the memory allocation information window, which will show the duration of the allocation as long as the window is open.
+When memory profiling (section [3.9](#memoryprofiling)) is enabled, Tracy will automatically generate a * Memory usage* plot, which has extended capabilities. For example, hovering over a data point (memory allocation event) will visually display the allocation duration. Clicking the left mouse button on the data point will open the memory allocation information window, which will show the duration of the allocation as long as the window is open.
 
 Another plot that Tracy automatically provides is the * CPU usage* plot, which represents the total system CPU usage percentage (it is not limited to the profiled application).
 
@@ -3581,32 +3670,38 @@ Sometimes, you may want to specify a time range, such as limiting some statistic
 
 To define a time range, drag the left mouse button over the timeline view while holding the Ctrl key. When the mouse key is released, the profiler will mark the selected time extent with a blue striped pattern, and it will display a context menu with the following options:
 
-- * Limit find zone time range* -- this will limit find zone results. See chapter [5.7](#findzone) for more details.
+-  Set time range for:
 
-- * Limit statistics time range* -- selecting this option will limit statistics results. See chapter [5.6](#statistics) for more details.
+  - * Find zone* -- this will limit find zone results. See chapter [5.7](#findzone) for more details.
 
-- * Limit flame graph time range* -- limits flame graph results. Refer to chapter [5.9](#flamegraph).
+  - * Statistics* -- selecting this option will limit statistics results. See chapter [5.6](#statistics) for more details.
 
-- * Limit wait stacks time range* -- limits wait stacks results. Refer to chapter [5.17](#stackwindows).
+  - * Flame graph* -- limits flame graph results. Refer to chapter [5.9](#flamegraph).
 
-- * Limit memory time range* -- limits memory results. Read more about this in chapter [5.10](#memorywindow).
+  - * Wait stacks* -- limits wait stacks results. Refer to chapter [5.18](#stackwindows).
+
+  - * Memory* -- limits memory results. Read more about this in chapter [5.10](#memorywindow).
+
+  - * Frame statistics* -- limits frame statistics. Section [5.14](#framestatistics) has more information.
 
 - * Add annotation* -- use to annotate regions of interest, as described in chapter [5.3.1](#annotatingtrace).
 
-Alternatively, you may specify the time range by clicking the right mouse button on a zone or a frame. The resulting time extent will match the selected item.
+Alternatively, you may specify the time range by clicking the right mouse button on a zone, section or a frame. The resulting time extent will match the selected item.
 
-To reduce clutter, time range regions are only displayed if the windows they affect are open or if the time range limits control window is open (section [5.23](#timerangelimits)). You can access the time range limits window through the * Tools* button on the control menu.
+To reduce clutter, time range regions are only displayed if the windows they affect are open or if the time range limits control window is open (section [5.24](#timerangelimits)). You can access the time range limits window through the * Tools* button on the control menu. Time range limits can also be disabled or enabled in the windows showing the data they affect.
 
 You can freely adjust each time range on the timeline by clicking the left mouse button on the range's edge and dragging the mouse.
 
 
 -----
 
+ - Ruler icon
  - Magnifying Glass icon
  - Arrow Up Wide Short icon
- - Fire icon
+ - Fire Flame Curved icon
  - Hourglass Half icon
  - Memory icon
+ - Images icon
  - Note Sticky icon
  - Screwdriver Wrench icon
 
@@ -3614,16 +3709,16 @@ You can freely adjust each time range on the timeline by clicking the left mouse
 
 Tracy allows adding custom notes to the trace. For example, you may want to mark a region to ignore because the application was out-of-focus or a region where a new user was connecting to the game, which resulted in a frame drop that needs to be investigated.
 
-Methods of specifying the annotation region are described in section [5.3](#timeranges). When a new annotation is added, a settings window is displayed (section [5.21](#annotationsettings)), allowing you to enter a description.
+Methods of specifying the annotation region are described in section [5.3](#timeranges). When a new annotation is added, it is assigned a semi-unique random name to make it distinguishable. The settings window is also opened (section [5.22](#annotationsettings)), allowing you to enter your own description of the annotation.
 
-Annotations are displayed on the timeline, as presented in figure [21](#annotation). Clicking on the circle next to the text description will open the annotation settings window, in which you can modify or remove the region. List of all annotations in the trace is available in the annotations list window described in section [5.22](#annotationlist), which is accessible through the * Tools* button on the control menu.
+Annotations are displayed on the timeline, as presented in figure [23](#annotation). Clicking on the text description area will open the annotation settings window, in which you can modify or remove the region. List of all annotations in the trace is available in the annotations list window described in section [5.23](#annotationlist), which is accessible through the * Tools* button on the control menu.
 
 <figure id="annotation" data-latex-placement="h">
 
 <figcaption>Annotation region.</figcaption>
 </figure>
 
-Please note that while the annotations persist between profiling sessions, they are not saved in the trace but in the user data files, as described in section [9.2](#tracespecific).
+Please note that while the annotations persist between profiling sessions, they are not saved in the trace but in the trace sidecar file, as described in section [9.2](#tracespecific).
 
 
 -----
@@ -3648,7 +3743,7 @@ In this window, you can set various trace-related options. For example, the time
 
   - * Draw CPU usage graph* -- You can disable drawing of the CPU usage graph here.
 
-- * Draw GPU zones* -- Allows disabling display of OpenGL/Vulkan/Metal/Direct3D/OpenCL zones. The *GPU zones* drop-down allows disabling individual GPU contexts and setting CPU/GPU drift offsets of uncalibrated contexts (see section [3.9](#gpuprofiling) for more information). The * Auto* button automatically measures the GPU drift value[^78].
+- * Draw GPU zones* -- Allows disabling display of OpenGL/Vulkan/Metal/Direct3D/OpenCL/CUDA/WebGPU zones. The *GPU zones* drop-down allows disabling individual GPU contexts and setting CPU/GPU drift offsets of uncalibrated contexts (see section [3.10](#gpuprofiling) for more information). The * Auto* button automatically measures the GPU drift value[^78].
 
 - * Draw CPU zones* -- Determines whether CPU zones are displayed.
 
@@ -3678,7 +3773,7 @@ In this window, you can set various trace-related options. For example, the time
 
     Function names in the remaining places across the UI will be normalized unless this option is set to *Disabled*.
 
-- * Draw locks* -- Controls the display of locks. If the *Only contended* option is selected, the profiler won't display the non-blocking regions of locks (see section [5.2.3.3](#zoneslocksplots)). The *Locks* drop-down allows disabling the display of locks on a per-lock basis. As a convenience, the list of locks is split into the single-threaded and multi-threaded (contended and uncontended) categories. Clicking the right mouse button on a lock label opens the lock information window (section [5.18](#lockwindow)).
+- * Draw locks* -- Controls the display of locks. If the *Only contended* option is selected, the profiler won't display the non-blocking regions of locks (see section [5.2.3.4](#zoneslocksplots)). The *Locks* drop-down allows disabling the display of locks on a per-lock basis. As a convenience, the list of locks is split into the single-threaded and multi-threaded (contended and uncontended) categories. Clicking the right mouse button on a lock label opens the lock information window (section [5.19](#lockwindow)).
 
 - * Draw plots* -- Allows disabling display of plots. Individual plots can be disabled in the *Plots* drop-down. The vertical size of the plots can be adjusted using the *Plot heights* slider.
 
@@ -3715,9 +3810,9 @@ It is possible to store defaults for the settings marked with a *\** to the glob
 
 ## Messages window {#messages}
 
-In this window, you can see all the messages that were sent by the client application, as described in section [3.7](#messagelog). The window is split into four columns: *time*, *thread*, *message* and *call stack*. Hovering the  mouse cursor over a message will highlight it on the timeline view. Clicking the left mouse button on a message will center the timeline view on the selected message.
+In this window, you can see all the messages that were sent by the client application, as described in section [3.8](#messagelog). The window is split into four columns: *time*, *thread*, *message* and *call stack*. Hovering the  mouse cursor over a message will highlight it on the timeline view. Clicking the left mouse button on a message will center the timeline view on the selected message.
 
-The *call stack* column is filled only if a call stack capture was requested, as described in section [3.11](#collectingcallstacks). A single entry consists of the * Show* button, which opens the call stack information window (chapter [5.15](#callstackwindow)) and of abbreviated information about the call path.
+The *call stack* column is filled only if a call stack capture was requested, as described in section [3.12](#collectingcallstacks). A single entry consists of the * Show* button, which opens the call stack information window (chapter [5.16](#callstackwindow)) and of abbreviated information about the call path.
 
 If the * Show frame images* option is selected, hovering the  mouse cursor over a message will show a tooltip containing frame image (see section [3.3.3](#frameimages)) associated with a frame in which the message was issued, if available.
 
@@ -3727,7 +3822,7 @@ You can filter the message list in the following ways:
 
 - By the originating thread in the * Visible threads* drop-down.
 
-- By matching the message text to the expression in the * Filter messages* entry field. Multiple filter expressions can be comma-separated (e.g. 'warn, info' will match messages containing strings 'warn' *or* 'info'). You can exclude matches by preceding the term with a minus character (e.g., '-debug' will hide all messages containing the string 'debug').
+- By matching the message text to the expression in the * Filter messages* entry field. Multiple filter expressions can be comma-separated (e.g. "warn, info" will match messages containing strings "warn" *or* "info"). You can exclude matches by preceding the term with a minus character (e.g., "-debug" will hide all messages containing the string "debug").
 
 - By message source, distinguishing between * User* messages and internal * Tracy* diagnostics.
 
@@ -3754,7 +3849,7 @@ You can filter the message list in the following ways:
 
 Looking at the timeline view gives you a very localized outlook on things. However, sometimes you want to look at the general overview of the program's behavior. For example, you want to know which function takes the most of the application's execution time. The statistics window provides you with exactly that information.
 
-If the trace capture was performed with call stack sampling enabled (as described in chapter [3.17.5](#sampling)), you will be presented with an option to switch between * Instrumentation* and * Sampling* modes. If the profiler collected no sampling data, but it retrieved symbols, the second mode will be displayed as * Symbols*, enabling you to list available symbols.
+If the trace capture was performed with call stack sampling enabled (as described in chapter [3.18.5](#sampling)), you will be presented with an option to switch between * Instrumentation* and * Sampling* modes. If the profiler collected no sampling data, but it retrieved symbols, the second mode will be displayed as * Symbols*, enabling you to list available symbols.
 
 If GPU zones were captured, you would also have the * GPU* option to view the GPU zones statistics.
 
@@ -3776,7 +3871,7 @@ Clicking the left mouse button on a zone will open the individual zone statistic
 
 You can filter the displayed list of zones by matching the zone name to the expression in the * Filter zones* entry field. Refer to section [5.5](#messages) for a more detailed description of the expression syntax.
 
-To limit the statistics to a specific time extent, you may enable the *Limit range* option (chapter [5.3](#timeranges)). The inclusion region will be marked with a red striped pattern. Note that a zone must be entirely inside the region to be counted. You can access more options through the * Limits* button, which will open the time range limits window, described in section [5.23](#timerangelimits).
+To limit the statistics to a specific time extent, you may enable the *Limit range* option (chapter [5.3](#timeranges)). The inclusion region will be marked with a red striped pattern. Note that a zone must be entirely inside the region to be counted. You can access more options through the * Limits* button, which will open the time range limits window, described in section [5.24](#timerangelimits).
 
 
 -----
@@ -3791,15 +3886,15 @@ Data displayed in this mode is, in essence, very similar to the instrumentation 
 
 First and foremost, the presented information is constructed from many call stack samples, which represent real addresses in the application's binary code, mapped to the line numbers in the source files. This reverse mapping may not always be possible or could be erroneous. Furthermore, due to the nature of the sampling process, it is impossible to obtain exact time measurements. Instead, time values are guesstimated by multiplying the number of sample counts by mean time between two different samples.
 
-The sample statistics list symbols, not functions. These terms are similar but not exactly the same. A symbol always has a base function that gives it its name. In most cases, a symbol will also contain a number of inlined functions. In some cases, the same function may be inlined more than once within the same symbol. Inspecting the local call stacks displayed in tooltips will show the specific paths by which these inlines were called within the symbol. See section [5.16.2.2](#assemblymode) for more detail.
+The sample statistics list symbols, not functions. These terms are similar but not exactly the same. A symbol always has a base function that gives it its name. In most cases, a symbol will also contain a number of inlined functions. In some cases, the same function may be inlined more than once within the same symbol. Inspecting the local call stacks displayed in tooltips will show the specific paths by which these inlines were called within the symbol. See section [5.17.2.2](#assemblymode) for more detail.
 
-The *Name* column contains name of the symbol in which the sampling was done. Kernel-mode symbol samples are distinguished with the red color. Symbols containing inlined functions are listed with the number of inlined functions in parentheses and can be expanded to show all inlined functions (some functions may be hidden if the * Show all* option is disabled due to lack of sampling data). Clicking the left mouse button on a function name will open a popup with options to select: you can either open the symbol view window (section [5.16.2](#symbolview)), or the sample entry stacks window (see chapter [5.17](#stackwindows))[^80].
+The *Name* column contains name of the symbol in which the sampling was done. Kernel-mode symbol samples are distinguished with the red color. Symbols containing inlined functions are listed with the number of inlined functions in parentheses and can be expanded to show all inlined functions (some functions may be hidden if the * Show all* option is disabled due to lack of sampling data). Clicking the left mouse button on a function name will open a popup with options to select: you can either open the symbol view window (section [5.17.2](#symbolview)), or the sample entry stacks window (see chapter [5.18](#stackwindows))[^80].
 
 [^80]: Note that if inclusive times are displayed, listed functions will be partially or completely coming from mid-stack frames, preventing, or limiting the capability to display the data.
 
 By default, each inlining of a function is listed separately. If you prefer to combine the measurements for functions that are inlined multiple times within a function, you can do so by enabling the * Aggregate* option. You cannot view sample entry stacks of inlined functions when this grouping method is enabled.
 
-In some cases it may be more interesting to see the most time consuming inline within the symbol rather than the symbol name. If you enable the *\* Top inline* option, the name of the busiest inline function will be displayed in the *Name* column.
+In some cases it may be more interesting to see the most time consuming inline within the symbol rather than the symbol name. If you enable the * Top inline* option, the name of the busiest inline function will be displayed in the *Name* column.
 
 If the * Inlines* option is enabled, the list will show all functions without grouping them by symbol. In this mode, inline functions are preceded by a  symbol and their parent function name is displayed in parentheses.
 
@@ -3811,7 +3906,7 @@ The profiler may not find some function locations due to insufficient debugging 
 
 The *Time* or *Count* column (depending on the * Show time* option selection) shows number of taken samples, either as a raw count, or in an easier to understand time format. Note that the percentage value of time is calculated relative to the wall-clock time. The percentage value of sample counts is relative to the total number of collected samples. You can also make the percentages of inline functions relative to the base symbol measurements by enabling the * Base relative* option.
 
-The last column, *Code size*, displays the size of the symbol in the executable image of the program. Since inlined routines are directly embedded into other functions, their symbol size will be based on the parent symbol and displayed as 'less than'. In some cases, this data won't be available. If the symbol code has been retrieved[^81] symbol size will be prepended with the `` icon, and clicking the right mouse button on the location column entry will open symbol view window (section [5.16.2](#symbolview)).
+The last column, *Code size*, displays the size of the symbol in the executable image of the program. Since inlined routines are directly embedded into other functions, their symbol size will be based on the parent symbol and displayed as 'less than'. In some cases, this data won't be available. If the symbol code has been retrieved[^81] symbol size will be prepended with the `` icon, and clicking the right mouse button on the location column entry will open symbol view window (section [5.17.2](#symbolview)).
 
 [^81]: Symbols larger than 128 KB are not captured.
 
@@ -3858,9 +3953,9 @@ Tracy gives you the ability to display an execution time histogram of all occurr
 
 You start by entering a search query, which will be matched against known zone names (see section [3.4](#markingzones) for information on the grouping of zone names). If the search found some results, you will be presented with a list of zones in the *matched source locations* drop-down. The selected zone's graph is displayed on the *histogram* drop-down, and also the matching zones are highlighted on the timeline view.
 
-Clicking the right mouse button on the source file location will open the source file view window (if applicable, see section [5.16](#sourceview)). If symbol data is available Tracy will try to match the instrumented zone name to a captured symbol. If this succeeds and there are no duplicate matches, the source file view will be accompanied by the disassembly of the code. Since this matching is not exact, in rare cases you may get the wrong data here. To just display the source code, press and hold the Ctrl key while clicking the right mouse button.
+Clicking the right mouse button on the source file location will open the source file view window (if applicable, see section [5.17](#sourceview)). If symbol data is available Tracy will try to match the instrumented zone name to a captured symbol. If this succeeds and there are no duplicate matches, the source file view will be accompanied by the disassembly of the code. Since this matching is not exact, in rare cases you may get the wrong data here. To just display the source code, press and hold the Ctrl key while clicking the right mouse button.
 
-An example histogram is presented in figure [22](#findzonehistogram). Here you can see that the majority of zone calls (by count) are clustered in the 300 ns group, closely followed by the 10 μs cluster. There are some outliers at the 1 and 10 ms marks, which can be ignored on most occasions, as these are single occurrences.
+An example histogram is presented in figure [24](#findzonehistogram). Here you can see that the majority of zone calls (by count) are clustered in the 300 ns group, closely followed by the 10 μs cluster. There are some outliers at the 1 and 10 ms marks, which can be ignored on most occasions, as these are single occurrences.
 
 <figure id="findzonehistogram" data-latex-placement="h">
 
@@ -3873,11 +3968,11 @@ Various data statistics about displayed data accompany the histogram, for exampl
 
 - *Log time* -- Switches between linear and logarithmic scale on the x axis of the graph, representing the time bins.
 
-- *Cumulate time* -- Changes how the histogram bin values are calculated. By default, the vertical bars on the graph represent the *call counts* of zones that fit in the given time bin. If this option is enabled, the bars represent the *time spent* in the zones. For example, on the graph presented in figure [22](#findzonehistogram) the 10 μs cluster is the dominating one, if we look at the time spent in the zone, even if the 300 ns cluster has a greater number of call counts.
+- *Cumulate time* -- Changes how the histogram bin values are calculated. By default, the vertical bars on the graph represent the *call counts* of zones that fit in the given time bin. If this option is enabled, the bars represent the *time spent* in the zones. For example, on the graph presented in figure [24](#findzonehistogram) the 10 μs cluster is the dominating one, if we look at the time spent in the zone, even if the 300 ns cluster has a greater number of call counts.
 
 - *Self time* -- Removes children time from the analyzed zones, which results in displaying only the time spent in the zone itself (or in non-instrumented function calls). It cannot be selected when *Running time* is active.
 
-- *Running time* -- Removes time when zone's thread execution was suspended by the operating system due to preemption by other threads, waiting for system resources, lock contention, etc. Available only when the profiler performed context switch capture (section [3.17.3](#contextswitches)). It cannot be selected when *Self time* is active.
+- *Running time* -- Removes time when zone's thread execution was suspended by the operating system due to preemption by other threads, waiting for system resources, lock contention, etc. Available only when the profiler performed context switch capture (section [3.18.3](#contextswitches)). It cannot be selected when *Self time* is active.
 
 - *Minimum values in bin* -- Excludes display of bins that do not hold enough values at both ends of the time range. Increasing this parameter will eliminate outliers, allowing us to concentrate on the interesting part of the graph.
 
@@ -3895,24 +3990,44 @@ The *found zones* section displays the individual zones grouped according to the
 
 - *Zone name* -- Groups zones by the name set on a per-call basis (see section [3.4](#markingzones)).
 
-- *Call stacks* -- Zones are grouped by the originating call stack (see section [3.11](#collectingcallstacks)). Note that two call stacks may sometimes appear identical, even if they are not, due to an easily overlooked difference in the source line numbers.
+- *Call stacks* -- Zones are grouped by the originating call stack (see section [3.12](#collectingcallstacks)). Note that two call stacks may sometimes appear identical, even if they are not, due to an easily overlooked difference in the source line numbers.
 
 - *Parent* -- Groups zones according to the parent zone. This mode relies on the zone hierarchy and *not* on the call stack information.
 
 - *No grouping* -- Disables zone grouping. It may be useful when you want to see zones in order as they appear.
 
-You may sort each group according to the *order* in which it appeared, the call *count*, the total *time* spent in the group, or the *mean time per call*. Expanding the group view will display individual occurrences of the zone, which can be sorted by application's time, execution time, or zone's name. Clicking the left mouse button on a zone will open the zone information window (section [5.14](#zoneinfo)). Clicking the middle mouse button on a zone will zoom the timeline view to the zone's extent.
+You may sort each group according to the *order* in which it appeared, the call *count*, the total *time* spent in the group, or the *mean time per call*. Expanding the group view will display individual occurrences of the zone, which can be sorted by application's time, execution time, or zone's name. Clicking the left mouse button on a zone will open the zone information window (section [5.15](#zoneinfo)). Clicking the middle mouse button on a zone will zoom the timeline view to the zone's extent.
 
-Clicking the left mouse button on the group name will highlight the group time data on the histogram (figure [23](#findzonehistogramgroup)). This function provides a quick insight into the impact of the originating thread or input data on the zone performance. Clicking on the * Clear* button will reset the group selection. If the grouping mode is set to *Parent* option, clicking the middle mouse button on the parent zone group will switch the find zone view to display the selected zone.
+Clicking the left mouse button on the group name will highlight the group time data on the histogram (figure [25](#findzonehistogramgroup)). This function provides a quick insight into the impact of the originating thread or input data on the zone performance. Clicking on the * Clear* button will reset the group selection. If the grouping mode is set to *Parent* option, clicking the middle mouse button on the parent zone group will switch the find zone view to display the selected zone.
 
 <figure id="findzonehistogramgroup" data-latex-placement="h">
 
 <figcaption>Zone execution time histogram with a group highlighted.</figcaption>
 </figure>
 
-The call stack grouping mode has a different way of listing groups. Here only one group is displayed at any time due to the need to display the call stack frames. You can switch between call stack groups by using the  and  buttons. You can select the group by clicking on the * Select* button. You can open the call stack window (section [5.15](#callstackwindow)) by pressing the * Call stack* button.
+The call stack grouping mode has a different way of listing groups. Here only one group is displayed at any time due to the need to display the call stack frames. You can switch between call stack groups by using the  and  buttons. You can select the group by clicking on the * Select* button. You can open the call stack window (section [5.16](#callstackwindow)) by pressing the * Call stack* button.
 
-Tracy displays a variety of statistical values regarding the selected function: mean (average value), median (middle value), mode (most common value, quantized using histogram bins), and (standard deviation). The mean and median zone times are also displayed on the histogram as red (mean) and blue (median) vertical bars. Additional bars will indicate the mean group time (orange) and median group time (green). You can disable the drawing of either set of markers by clicking on the check-box next to the color legend.
+Tracy displays a variety of statistical values regarding the selected function:
+
+- *mean* -- average time value,
+
+- *median* -- middle time value (P50),
+
+- *mode* -- most common time value, quantized using histogram bins,
+
+- *σ* -- standard deviation,
+
+- *coefficient of variation* -- relation of σ to mean,
+
+- *P75* -- 75th percentile time value,
+
+- *P90* -- 90th percentile time value,
+
+- *P99* -- 99th percentile time value,
+
+- *P99.9* -- 99.9th percentile time value.
+
+The mean and median zone times are also displayed on the histogram as red (mean) and blue (median) vertical bars. Additional bars will indicate the mean group time (orange) and median group time (green). You can disable the drawing of either set of markers by clicking on the check-box next to the color legend.
 
 Hovering the  mouse cursor over a zone on the timeline, which is currently selected in the find zone window, will display a pulsing vertical bar on the histogram, highlighting the bin to which the hovered zone has been assigned. In addition, it will also highlight zone entry on the zone list.
 
@@ -3955,7 +4070,7 @@ Enabling *Self time* option affects the displayed values, but *Running time* doe
 
 ### Limiting zone time range
 
-If the *Limit range* option is selected, the profiler will include only the zones within the specified time range (chapter [5.3](#timeranges)) in the data. The inclusion region will be marked with a green striped pattern. Note that a zone must be entirely inside the region to be counted. You can access more options through the * Limits* button, which will open the time range limits window, described in section [5.23](#timerangelimits).
+If the *Limit range* option is selected, the profiler will include only the zones within the specified time range (chapter [5.3](#timeranges)) in the data. The inclusion region will be marked with a green striped pattern. Note that a zone must be entirely inside the region to be counted. You can access more options through the * Limits* button, which will open the time range limits window, described in section [5.24](#timerangelimits).
 
 
 -----
@@ -3964,7 +4079,7 @@ If the *Limit range* option is selected, the profiler will include only the zone
 
 ### Zone samples
 
-If sampling data has been captured (see section [3.17.5](#sampling)), an additional expandable * Samples* section will be displayed. This section contains only the sample data attributed to the displayed zone. Looking at this list may give you additional insight into what is happening within the zone. Refer to section [5.6.2](#statisticssampling) for more information about this view.
+If sampling data has been captured (see section [3.18.5](#sampling)), an additional expandable * Samples* section will be displayed. This section contains only the sample data attributed to the displayed zone. Looking at this list may give you additional insight into what is happening within the zone. Refer to section [5.6.2](#statisticssampling) for more information about this view.
 
 You can further narrow down the list of samples by selecting a time range on the histogram or by choosing a group in the *Found zones* section. However, do note that the random nature of sampling makes it highly unlikely that short-lived zones (i.e., left part of the histogram) will have any sample data collected.
 
@@ -3981,7 +4096,7 @@ Tracy solves this problem by providing a compare traces functionality, very simi
 
 You would begin your work by recording a reference trace that represents the usual behavior of the program. Then, after the optimization of the code is completed, you record another trace, doing roughly what you did for the reference one. Finally, having the optimized trace open, you select the * Open second trace* option in the compare traces window and load the reference trace.
 
-Now things start to get familiar. You search for a zone, similarly like in the find zone window, choose the one you want in the *matched source locations* drop-down, and then you look at the histogram[^84]. This time there are two overlaid graphs, one representing the current trace and the second one representing the external (reference) trace (figure [24](#comparehistogram)). You can easily see how the performance characteristics of the zone were affected by your modifications.
+Now things start to get familiar. You search for a zone, similarly like in the find zone window, choose the one you want in the *matched source locations* drop-down, and then you look at the histogram[^84]. This time there are two overlaid graphs, one representing the current trace and the second one representing the external (reference) trace (figure [26](#comparehistogram)). You can easily see how the performance characteristics of the zone were affected by your modifications.
 
 [^84]: When comparing frame times you are presented with a list of available frame sets, without the search box.
 
@@ -4018,7 +4133,7 @@ Please note that changes will be registered only if the file has the same name a
 
 The flame graph is a way of showing the general performance characteristics of a program on a single chart. While the timeline view displays each zone individually, the flame graph aggregates all zones into a tree structure that better conveys where the application spends its time in relation to the program flow.
 
-Figure [25](#flamegraphfigure) shows an example flame graph. The graph shows that the program has been running for 11 seconds. Looking at the top row of the zones tree, we see that during this time one second was spent in the *Init* zone and the remaining ten seconds in the *Game loop* zone.
+Figure [27](#flamegraphfigure) shows an example flame graph. The graph shows that the program has been running for 11 seconds. Looking at the top row of the zones tree, we see that during this time one second was spent in the *Init* zone and the remaining ten seconds in the *Game loop* zone.
 
 The rows below show the zone times of the child functions. For example, the *Game loop* zone goes into the *Logic update* and *Render* zones. Only one aggregated *Logic update* and *Render* zone is displayed, even though the *Game loop* would enter these functions hundreds of times in a 10-second span.
 
@@ -4037,11 +4152,11 @@ You can use an alternative sorting method by enabling the *Sort by time* option.
 
 You can navigate the flame graph using the mouse. Use the mouse wheel to zoom in and out around the mouse pointer. Pressing the Ctrl key makes zooming more precise, while pressing the Shift key makes it faster. Dragging with the right mouse button pans the graph horizontally and vertically. The bar below the time ruler shows the current horizontal view position and can be dragged to pan the graph. The *Reset view* button resets the view to show the whole graph.
 
-Similar to the statistics window (section [5.6](#statistics)), the flame graph can operate in two modes: * Instrumentation* and * Sampling*. In the instrumentation mode, the graph represents the zones you put in your program. In the sampling mode, the graph is constructed from the automatically captured call stack data (section [3.17.5](#sampling)).
+Similar to the statistics window (section [5.6](#statistics)), the flame graph can operate in two modes: * Instrumentation* and * Sampling*. In the instrumentation mode, the graph represents the zones you put in your program. In the sampling mode, the graph is constructed from the automatically captured call stack data (section [3.18.5](#sampling)).
 
 In the sampling mode, external frames from system libraries are hidden by default. These typically include internal implementation details of starting threads, handling smart pointers, and other such things that are quick to execute and not really interesting. Enabling the * External* option will show these frames. One exception is *external tails*, or calls that your code makes that do not eventually land in your application down the call chain. Think of functions that write to a file or send data on the network. These can be time-consuming, and you may want to see them. There is a separate option to disable these.
 
-The flame graph can be restricted to a specific time extent using the *Limit range* option (chapter [5.3](#timeranges)). You can access more options through the * Limits* button, which will open the time range limits window, described in section [5.23](#timerangelimits).
+The flame graph can be restricted to a specific time extent using the *Limit range* option (chapter [5.3](#timeranges)). You can access more options through the * Limits* button, which will open the time range limits window, described in section [5.24](#timerangelimits).
 
 
 -----
@@ -4053,7 +4168,7 @@ The flame graph can be restricted to a specific time extent using the *Limit ran
 
 ## Memory window {#memorywindow}
 
-You can view the data gathered by profiling memory usage (section [3.8](#memoryprofiling)) in the memory window. If the profiler tracked more than one memory pool during the capture, you would be able to select which collection you want to look at, using the * Memory pool* selection box.
+You can view the data gathered by profiling memory usage (section [3.9](#memoryprofiling)) in the memory window. If the profiler tracked more than one memory pool during the capture, you would be able to select which collection you want to look at, using the * Memory pool* selection box.
 
 The top row contains statistics, such as *total allocations* count, number of *active allocations*, current *memory usage* and process *memory span*[^86].
 
@@ -4065,7 +4180,7 @@ The lists of captured memory allocations are displayed in a common multi-column 
 
 The allocation's timing data is contained in two columns: *appeared at* and *duration*. Clicking the left mouse button on the first one will center the timeline view at the beginning of allocation, and likewise, clicking on the second one will center the timeline view at the end of allocation. Note that allocations that have not yet been freed will have their duration displayed in green color.
 
-The memory event location in the code is displayed in the last four columns. The *thread* column contains the thread where the allocation was made and freed (if applicable), or an *alloc / free* pair of the threads if it was allocated in one thread and freed in another. The *zone alloc* contains the zone in which the allocation was performed[^88], or `-` if there was no active zone in the given thread at the time of allocation. Clicking the left mouse button on the zone name will open the zone information window (section [5.14](#zoneinfo)). Similarly, the *zone free* column displays the zone which freed the allocation, which may be colored yellow, if it is the same zone that did the allocation. Alternatively, if the zone has not yet been freed, a green *active* text is displayed. The last column contains the *alloc* and *free* call stack buttons, or their placeholders, if no call stack is available (see section [3.11](#collectingcallstacks) for more information). Clicking on either of the buttons will open the call stack window (section [5.15](#callstackwindow)). Note that the call stack buttons that match the information window will be highlighted.
+The memory event location in the code is displayed in the last four columns. The *thread* column contains the thread where the allocation was made and freed (if applicable), or an *alloc / free* pair of the threads if it was allocated in one thread and freed in another. The *zone alloc* contains the zone in which the allocation was performed[^88], or `-` if there was no active zone in the given thread at the time of allocation. Clicking the left mouse button on the zone name will open the zone information window (section [5.15](#zoneinfo)). Similarly, the *zone free* column displays the zone which freed the allocation, which may be colored yellow, if it is the same zone that did the allocation. Alternatively, if the zone has not yet been freed, a green *active* text is displayed. The last column contains the *alloc* and *free* call stack buttons, or their placeholders, if no call stack is available (see section [3.12](#collectingcallstacks) for more information). Clicking on either of the buttons will open the call stack window (section [5.16](#callstackwindow)). Note that the call stack buttons that match the information window will be highlighted.
 
 [^88]: The actual allocation is typically a couple functions deeper in the call stack.
 
@@ -4102,17 +4217,17 @@ This view may help assess the general memory behavior of the application or in d
 
 ### Bottom-up call stack tree {#callstacktree}
 
-The * Bottom-up call stack tree* pane is only available, if the memory events were collecting the call stack data (section [3.11](#collectingcallstacks)). In this view, you are presented with a tree of memory allocations, starting at the call stack entry point and going up to the allocation's pinpointed place. Each tree level is sorted according to the number of bytes allocated in the given branch.
+The * Bottom-up call stack tree* pane is only available, if the memory events were collecting the call stack data (section [3.12](#collectingcallstacks)). In this view, you are presented with a tree of memory allocations, starting at the call stack entry point and going up to the allocation's pinpointed place. Each tree level is sorted according to the number of bytes allocated in the given branch.
 
 Each tree node consists of the function name, the source file location, and the memory allocation data. The memory allocation data is either yellow *inclusive* events count (allocations performed by children) or the cyan *exclusive* events count (allocations that took place in the node)[^89]. Two values are counted: total memory size and number of allocations.
 
 [^89]: Due to the way call stacks work, there is no possibility for an entry to have both inclusive and exclusive counts, in an adequately instrumented program.
 
-See chapter [5.17](#stackwindows) for description of the * Group by function name* option.
+See chapter [5.18](#stackwindows) for description of the * Group by function name* option.
 
 Enabling the *Only active allocations* option will limit the call stack tree only to display active allocations. Enabling *Only inactive allocations* option will have similar effect for inactive allocations. Both are mutually exclusive, enabling one disables the other. Displaying inactive allocations, when combined with *Limit range*, will show short lived allocations highlighting potentially unwanted behavior in the code.
 
-Clicking the right mouse button on the function name will open the allocations list window (see section [5.11](#alloclist)), which lists all the allocations included at the current call stack tree level. Likewise, clicking the right mouse button on the source file location will open the source file view window (if applicable, see section [5.16](#sourceview)).
+Clicking the right mouse button on the function name will open the allocations list window (see section [5.11](#alloclist)), which lists all the allocations included at the current call stack tree level. Likewise, clicking the right mouse button on the source file location will open the source file view window (if applicable, see section [5.17](#sourceview)).
 
 Some function names may be too long to correctly display, with the events count data at the end. In such cases, you may press the *control* button, which will display the events count tooltip.
 
@@ -4135,7 +4250,7 @@ The * Top-down call stack tree* pane is identical in functionality to the 
 
 ### Looking back at the memory history
 
-By default, the memory window displays the memory data at the current point of program execution. It is, however, possible to view the historical data by enabling the * Limits* option. The profiler will consider only the memory events within the time range in the displayed results. See section [5.23](#timerangelimits) for more information.
+By default, the memory window displays the memory data at the current point of program execution. It is, however, possible to view the historical data by enabling the * Limits* option. The profiler will consider only the memory events within the time range in the displayed results. See section [5.24](#timerangelimits) for more information.
 
 
 -----
@@ -4157,19 +4272,19 @@ The information about the selected memory allocation is displayed in this window
 
 ## Trace information window {#traceinfo}
 
-This window contains information about the current trace: captured program name, time of the capture, profiler version which performed the capture, and a custom trace description, which you can fill in.
+This window contains information about the current trace: captured program name, time of the capture, profiler version which performed the capture.
+
+There's an text entry field for an optional custom description of the trace for you to fill in. This description will appear on the profiler window title bar, or when comparing two traces (section [5.8](#compare)), enabling you to quickly recognize what the trace contains. For some people it's fine to just have *any* semi-unique description to be able to identify a specific trace. For such purposes there's an * Generate name* button, which will set the trace description to an abstract meaningless identifier.
+
+If the * Public sidecar* option is selected, the file containing trace-specific user settings (see section [9.2](#tracespecific)) will be saved on disk next to the trace file.
 
 Open the *Trace statistics* section to see information about the trace, such as achieved timer resolution, number of captured zones, lock events, plot data points, memory allocations, etc.
 
-There's also a section containing the selected frame set timing statistics and histogram[^90]. As a convenience, you can switch the active frame set here and limit the displayed frame statistics to the frame range visible on the screen.
+If *CPU topology* data is available (see section [3.18.4](#cputopology)), you will be able to view the package, core, and thread hierarchy.
 
-[^90]: See section [5.7](#findzone) for a description of the histogram. Note that there are subtle differences in the available functionality.
+The *Source location substitutions* section allows adapting the source file paths, as captured by the profiler, to the actual on-disk locations[^90]. You can create a new substitution by clicking the *Add new substitution* button. This will add a new entry, with input fields for ECMAScript-conforming regular expression pattern and its corresponding replacement string. You can quickly test the outcome of substitutions in the *example source location* input field, which will be transformed and displayed below, as *result*.
 
-If *CPU topology* data is available (see section [3.17.4](#cputopology)), you will be able to view the package, core, and thread hierarchy.
-
-The *Source location substitutions* section allows adapting the source file paths, as captured by the profiler, to the actual on-disk locations[^91]. You can create a new substitution by clicking the *Add new substitution* button. This will add a new entry, with input fields for ECMAScript-conforming regular expression pattern and its corresponding replacement string. You can quickly test the outcome of substitutions in the *example source location* input field, which will be transformed and displayed below, as *result*.
-
-[^91]: This does not affect source files cached during the profiling run.
+[^90]: This does not affect source files cached during the profiling run.
 
 > [!TIP]
 > **Quick example**
@@ -4180,11 +4295,23 @@ The *Source location substitutions* section allows adapting the source file path
 >
 > - `\\` `/`
 
-By default, all source file modification times need to be older than the cature time of the trace. This can be disabled using the *Enforce source file modification time older than trace capture time* check box, i.e. when the source files are under source control and the file modification time is not relevant.
+By default, all source file modification times need to be older than the capture time of the trace. This can be disabled using the *Enforce source file modification time older than trace capture time* check box, i.e. when the source files are under source control and the file modification time is not relevant.
 
-In this window, you can view the information about the machine on which the profiled application was running. This includes the operating system, used compiler, CPU name, total available RAM, etc. In addition, if application information was provided (see section [3.7.1](#appinfo)), it will also be displayed here.
+In this window, you can view the information about the machine on which the profiled application was running. This includes the operating system, used compiler, CPU name, total available RAM, etc. In addition, if application information was provided (see section [3.8.1](#appinfo)), it will also be displayed here.
 
-If an application should crash during profiling (section [2.5](#crashhandling)), the profiler will display the crash information in this window. It provides you information about the thread that has crashed, the crash reason, and the crash call stack (section [5.15](#callstackwindow)).
+If an application should crash during profiling (section [2.5](#crashhandling)), the profiler will display the crash information in this window. It provides you information about the thread that has crashed, the crash reason, and the crash call stack (section [5.16](#callstackwindow)).
+
+
+-----
+
+ - Dice icon
+ - User Gear icon
+
+## Frame statistics window {#framestatistics}
+
+This windows shows statistical information about the selected frame set timing, and a histogram. See section [5.7](#findzone) for a description of the displayed data. As a convenience, you can switch the active frame set here.
+
+You can restrict the displayed frame statistics to the frame range currently visible on the screen with the *Limit to view* option, while the *Limit range* switch limits the active range to a preset time limit, as described in chapter [5.24](#timerangelimits). If both limit options are active, the resulting frame range is the intersection of both ranges.
 
 ## Zone information window {#zoneinfo}
 
@@ -4194,13 +4321,13 @@ The zone information window displays detailed information about a single zone. T
 
 - Timing information.
 
-- If the profiler performed context switch capture (section [3.17.3](#contextswitches)) and a thread was suspended during zone execution, a list of wait regions will be displayed, with complete information about the timing, CPU migrations, and wait reasons. If CPU topology data is available (section [3.17.4](#cputopology)), the profiler will mark zone migrations across cores with 'C' and migrations across packages -- with 'P.' In some cases, context switch data might be incomplete[^92], in which case a warning message will be displayed.
+- If the profiler performed context switch capture (section [3.18.3](#contextswitches)) and a thread was suspended during zone execution, a list of wait regions will be displayed, with complete information about the timing, CPU migrations, and wait reasons. If CPU topology data is available (section [3.18.4](#cputopology)), the profiler will mark zone migrations across cores with "C" and migrations across packages -- with "P." In some cases, context switch data might be incomplete[^91], in which case a warning message will be displayed.
 
 - Memory events list, both summarized and a list of individual allocation/free events (see section [5.10](#memorywindow) for more information on the memory events list).
 
 - List of messages that the profiler logged in the zone's scope. If the *exclude children* option is disabled, messages emitted in child zones will also be included.
 
-- Parent zones list, showing the hierarchy of parent zones that contain the current zone. Hovering the  mouse pointer over a parent zone will highlight it on the timeline view with a red outline. Clicking the left mouse button on a zone will switch the zone info window to that zone. Clicking the middle mouse button on a zone will zoom the timeline view to the zone's extent. Clicking the right mouse button on a source file location will open the source file view window (if applicable, see section [5.16](#sourceview)).
+- Parent zones list, showing the hierarchy of parent zones that contain the current zone. Hovering the  mouse pointer over a parent zone will highlight it on the timeline view with a red outline. Clicking the left mouse button on a zone will switch the zone info window to that zone. Clicking the middle mouse button on a zone will zoom the timeline view to the zone's extent. Clicking the right mouse button on a source file location will open the source file view window (if applicable, see section [5.17](#sourceview)).
 
 - Zone call stack. It can be also displayed in a separate window with the * Call stack* button.
 
@@ -4208,12 +4335,12 @@ The zone information window displays detailed information about a single zone. T
 
 - Time distribution in child zones, which expands the information provided in the child zones list by processing *all* zone children (including multiple levels of grandchildren). This results in a statistical list of zones that were really doing the work in the current zone's time span. If a group of zones is selected on this list, the find zone window (section [5.7](#findzone)) will open, with a time range limited to show only the children of the current zone.
 
-[^92]: For example, when capture is ongoing and context switch information has not yet been received.
+[^91]: For example, when capture is ongoing and context switch information has not yet been received.
 
 > [!TIP]
 > **Call stack reconstruction**
 >
-> When a zone was not instrumented with call stack capture, Tracy will still try to provide the call stack reconstruction. Note that for this to work, call stack sampling must be enabled (section [3.17.5](#sampling)), and at least one sample must be captured in the zone time extent. The heuristic analysis is not perfect, and the result may be incorrect.
+> When a zone was not instrumented with call stack capture, Tracy will still try to provide the call stack reconstruction. Note that for this to work, call stack sampling must be enabled (section [3.18.5](#sampling)), and at least one sample must be captured in the zone time extent. The heuristic analysis is not perfect, and the result may be incorrect.
 >
 > Reconstructed call stacks are indicated with the  magic wand icon.
 
@@ -4225,9 +4352,9 @@ The zone information window has the following controls available:
 
 - * Statistics* -- Displays the zone general performance characteristics in the find zone window (section [5.7](#findzone)).
 
-- * Call stack* -- Views the current zone's call stack in the call stack window (section [5.15](#callstackwindow)). The button will be highlighted if the call stack window shows the zone's call stack. Only available if zone had captured call stack data (section [3.11](#collectingcallstacks)).
+- * Call stack* -- Views the current zone's call stack in the call stack window (section [5.16](#callstackwindow)). The button will be highlighted if the call stack window shows the zone's call stack. Only available if zone had captured call stack data (section [3.12](#collectingcallstacks)).
 
-- * Source* -- Display source file view window with the zone source code (only available if applicable, see section [5.16](#sourceview)). The button will be highlighted if the source file is displayed (but the focused source line might be different).
+- * Source* -- Display source file view window with the zone source code (only available if applicable, see section [5.17](#sourceview)). The button will be highlighted if the source file is displayed (but the focused source line might be different).
 
 - * Go back* -- Returns to the previously viewed zone. The viewing history is lost when the zone information window is closed or when the type of displayed zone changes (from CPU to GPU or vice versa).
 
@@ -4248,15 +4375,17 @@ Clicking on the * Copy to clipboard* buttons will copy the appropriate data t
 
 ## Call stack window {#callstackwindow}
 
-This window shows the frames contained in the selected call stack. Information about the originating thread is included. Each frame is described by a function name, source file location, and originating image[^93] name. Function frames originating from the kernel are marked with a red color. Clicking the left mouse button on either the function name of source file location will copy the name to the clipboard. Clicking the right mouse button on the source file location will open the source file view window (if applicable, see section [5.16](#sourceview)).
+This window shows the frames contained in the selected call stack. Information about the originating thread is included. Each frame is described by a function name, source file location, and originating image[^92] name. Function frames originating from the kernel are marked with a red color. Clicking the left mouse button on either the function name of source file location will copy the name to the clipboard. Clicking the right mouse button on the source file location will open the source file view window (if applicable, see section [5.17](#sourceview)).
 
-[^93]: Executable images are called *modules* by Microsoft.
+[^92]: Executable images are called *modules* by Microsoft.
 
-A single stack frame may have multiple function call places associated with it. This happens in the case of inlined function calls. Such entries will be displayed in the call stack window, with *inline* in place of frame number[^94].
+A single stack frame may have multiple function call places associated with it. This happens in the case of inlined function calls. Such entries will be displayed in the call stack window, with *inline* in place of frame number[^93].
 
-[^94]: Or '' icon in case of call stack tooltips.
+[^93]: Or "" icon in case of call stack tooltips.
 
 If the call stack shows a crash (see section [2.5](#crashhandling)), a red * Crash* label will be displayed. Clicking it will center the timeline on the crash. Note that the crash stack may contain OS or Tracy frames where the crash was intercepted and processed.
+
+If the call stack shows a wait stack (see section [3.18.5.1](#waitstacks)), a blue * Wait stack* label will be displayed. Hovering the  mouse pointer over it will display a tooltip displaying how much time was spent waiting in the stack, what was the wait reason and status.
 
 Stack frame location may be displayed in the following number of ways, depending on the *Frame at* option selection:
 
@@ -4268,13 +4397,13 @@ Stack frame location may be displayed in the following number of ways, depending
 
 - *Symbol address* -- displays begin address of the function containing the frame address.
 
-In some cases, it may not be possible to decode stack frame addresses correctly. Such frames will be presented with a dimmed '`[ntdll.dll]`' name of the image containing the frame address, or simply '`[unknown]`' if the profiler cannot retrieve even this information. Additionally, '`[kernel]`' is used to indicate unknown stack frames within the operating system's internal routines.
+In some cases, it may not be possible to decode stack frame addresses correctly. Such frames will be presented with a dimmed "`[ntdll.dll]`" name of the image containing the frame address, or simply "`[unknown]`" if the profiler cannot retrieve even this information. Additionally, "`[kernel]`" is used to indicate unknown stack frames within the operating system's internal routines.
 
 External frames from system libraries are hidden by default. Enabling the * External* option will show these frames, which can be useful for debugging issues in external code. When external frames are displayed, they are dimmed out.
 
 The * Short images* option shortens the displayed executable image name to only the file name. The full path is available in the tooltip.
 
-If the displayed call stack is a sampled call stack (chapter [3.17.5](#sampling)), an additional button may be available, * Entry stacks*. Clicking it will open the sample entry stacks window (chapter [5.17](#stackwindows)) for the current call stack.
+If the displayed call stack is a sampled call stack (chapter [3.18.5](#sampling)), an additional button may be available, * Entry stacks*. Clicking it will open the sample entry stacks window (chapter [5.18](#stackwindows)) for the current call stack.
 
 Clicking on the * Copy to clipboard* button will copy call stack to the clipboard.
 
@@ -4287,9 +4416,11 @@ Clicking on the * Summary* button will use Tracy Assist to generate a brief s
 
  - Caret Right icon
  - Skull icon
+ - Hourglass Half icon
+ - Arrow Pointer icon
  - Shield Halved icon
  - Scissors icon
- - Door Open icon
+ - Arrow Down Short Wide icon
  - Clipboard icon
  - Robot icon
  - Tag icon
@@ -4307,17 +4438,17 @@ You need to take special care when reading call stacks. Contrary to their name, 
 
 Let's say you are looking at the call stack of some function called within `Application::Run`. This is the result you might get:
 
-    0. @\ldots@
-    1. @\ldots@
+    0. …
+    1. …
     2. Application::Run
     3. std::unique_ptr<Application>::reset
     4. main
 
 At the first glance it may look like `unique_ptr::reset` was the *call site* of the `Application::Run`, which would make no sense, but this is not the case here. When you remember these are the *function return points*, it becomes much more clear what is happening. As an optimization, `Application::Run` is returning directly into `unique_ptr::reset`, skipping the return to `main` and an unnecessary `reset` function call.
 
-Moreover, the linker may determine in some rare cases that any two functions in your program are identical[^95]. As a result, only one copy of the binary code will be provided in the executable for both functions to share. While this optimization produces more compact programs, it also means that there's no way to distinguish the two functions apart in the resulting machine code. In effect, some call stacks may look nonsensical until you perform a small investigation.
+Moreover, the linker may determine in some rare cases that any two functions in your program are identical[^94]. As a result, only one copy of the binary code will be provided in the executable for both functions to share. While this optimization produces more compact programs, it also means that there's no way to distinguish the two functions apart in the resulting machine code. In effect, some call stacks may look nonsensical until you perform a small investigation.
 
-[^95]: For example, if all they do is zero-initialize a region of memory. As some constructors would do.
+[^94]: For example, if all they do is zero-initialize a region of memory. As some constructors would do.
 
 ## Source view window {#sourceview}
 
@@ -4346,7 +4477,7 @@ In source view mode, you can view the source code of the profiled application to
 
 A much more capable symbol view mode is available if the inspected source location has an associated symbol context (i.e., if it comes from a call stack capture, from call stack sampling, etc.). A symbol is a unit of machine code, basically a callable function. It may be generated using multiple source files and may consist of numerous inlined functions. A list of all captured symbols is available in the statistics window, as described in chapter [5.6.2](#statisticssampling).
 
-The header of symbol view window contains a name of the selected * symbol*, a list of * functions* that contribute to the symbol, and information such as count of probed * Samples*. The entry stacks (section [5.17](#stackwindows)) of the symbol can be viewed by clicking on the *Entry stacks* button.
+The header of symbol view window contains a name of the selected * symbol*, a list of * functions* that contribute to the symbol, and information such as count of probed * Samples*. The entry stacks (section [5.18](#stackwindows)) of the symbol can be viewed by clicking on the * Entry stacks* button.
 
 Additionally, you may use the *Mode* selector to decide what content should be displayed in the panels below:
 
@@ -4364,10 +4495,11 @@ Some modes may be unavailable in some circumstances (missing or outdated source 
  - Puzzle Piece icon
  - Sitemap icon
  - Eye Dropper icon
+ - Arrow Down Short Wide icon
 
 #### Source mode
 
-This is pretty much the source file view window, but with the ability to select one of the source files that the compiler used to build the symbol. Additionally, each source file line that produced machine code in the symbol will show a count of associated assembly instructions, displayed with an '`@`' prefix, and will be marked with grey color on the scroll bar. Due to how optimizing compilers work, some lines may seemingly not produce any machine code, for example, because iterating a loop counter index might have been reduced to advancing a data pointer. Some other lines may have a disproportionate amount of associated instructions, e.g., when the compiler applied a loop unrolling optimization. This varies from case to case and from compiler to compiler.
+This is pretty much the source file view window, but with the ability to select one of the source files that the compiler used to build the symbol. Additionally, each source file line that produced machine code in the symbol will show a count of associated assembly instructions, displayed with an "`@`" prefix, and will be marked with grey color on the scroll bar. Due to how optimizing compilers work, some lines may seemingly not produce any machine code, for example, because iterating a loop counter index might have been reduced to advancing a data pointer. Some other lines may have a disproportionate amount of associated instructions, e.g., when the compiler applied a loop unrolling optimization. This varies from case to case and from compiler to compiler.
 
 The *Propagate inlines* option, available when sample data is present, will enable propagation of the instruction costs down the local call stack. For example, suppose a base function in the symbol issues a call to an inlined function (which may not be readily visible due to being contained in another source file). In that case, any cost attributed to the inlined function will be visible in the base function. Because the cost information is added to all the entries in the local call stacks, it is possible to see seemingly nonsense total cost values when this feature is enabled. To quickly toggle this on or off, you may also press the X key.
 
@@ -4382,15 +4514,15 @@ If the * Source locations* option is selected, each line of the assembly code
 >
 > In some cases, it may be challenging to understand what is being displayed in the disassembly. For example, calling the `std::lower_bound` function may generate multiple levels of inlined functions: first, we enter the search algorithm, then the comparison functions, which in turn may be lambdas that call even more external code, and so on. In such an event, you will most likely see that some external code is taking a long time to execute, and you will be none the wiser on improving things.
 >
-> The local call stack for an assembly instruction represents all the inline function calls *within the symbol* (hence the 'local' part), which were made to reach the instruction. Deeper inspection of the local call stack, including navigation to the source call site of each participating inline function, can be performed through the context menu accessible by pressing the right mouse button on the source location.
+> The local call stack for an assembly instruction represents all the inline function calls *within the symbol* (hence the "local" part), which were made to reach the instruction. Deeper inspection of the local call stack, including navigation to the source call site of each participating inline function, can be performed through the context menu accessible by pressing the right mouse button on the source location.
 
 Selecting the * Raw code* option will enable the display of raw machine code bytes for each line. Individual bytes are displayed with interwoven colors to make reading easier.
 
 If any instruction would jump to a predefined address, the symbolic name of the jump target will be additionally displayed. If the destination location is within the currently displayed symbol, an `->` arrow will be prepended to the name. Hovering the  mouse pointer over such symbol name will highlight the target location. Clicking on it with the left mouse button will focus the view on the destination instruction or switch view to the destination symbol.
 
-Enabling the * Jumps* option will show jumps within the symbol code as a series of arrows from the jump source to the jump target, and hovering the  mouse pointer over a jump arrow will display a jump information tooltip. It will also draw the jump range on the scroll bar as a green line. A horizontal green line will mark the jump target location. Clicking on a jump arrow with the left mouse button will focus the view on the target location. The right mouse button opens a jump context menu, which allows inspection and navigation to the target location or any of the source locations. Jumps going out of the symbol[^96] will be indicated by a smaller arrow pointing away from the code.
+Enabling the * Jumps* option will show jumps within the symbol code as a series of arrows from the jump source to the jump target, and hovering the  mouse pointer over a jump arrow will display a jump information tooltip. It will also draw the jump range on the scroll bar as a green line. A horizontal green line will mark the jump target location. Clicking on a jump arrow with the left mouse button will focus the view on the target location. The right mouse button opens a jump context menu, which allows inspection and navigation to the target location or any of the source locations. Jumps going out of the symbol[^95] will be indicated by a smaller arrow pointing away from the code.
 
-[^96]: This includes jumps, procedure calls, and returns. For example, in x86 assembly the respective operand names can be: `jmp`, `call`, `ret`.
+[^95]: This includes jumps, procedure calls, and returns. For example, in x86 assembly the respective operand names can be: `jmp`, `call`, `ret`.
 
 Portions of the executable used to show the symbol view are stored within the captured profile and don't rely on the available local disk files.
 
@@ -4416,15 +4548,15 @@ If the listed assembly code targets x86 or x64 instruction set architectures, ho
 
 - *Ports* -- Which ports (execution units) are required for dispatch of microinstructions. For example, `2*p0+1*p015` would mean that out of the three microinstructions implementing the assembly instruction, two can only be executed on port 0, and one microinstruction can be executed on ports 0, 1, or 5. The number of available ports and their capabilities varies between different processors architectures. Refer to <https://wikichip.org/> for more information.
 
-Selection of the CPU microarchitecture can be performed using the * μarch* drop-down. Each architecture is accompanied by the name of an example CPU implementing it. If the current selection matches the microarchitecture on which the profiled application was running, the  icon will be green[^97]. Otherwise, it will be red[^98]. Clicking on the  icon when it is red will reset the selected microarchitecture to the one the profiled application was running on.
+Selection of the CPU microarchitecture can be performed using the * μarch* drop-down. Each architecture is accompanied by the name of an example CPU implementing it. If the current selection matches the microarchitecture on which the profiled application was running, the  icon will be green[^96]. Otherwise, it will be red[^97]. Clicking on the  icon when it is red will reset the selected microarchitecture to the one the profiled application was running on.
 
-[^97]: Comparing sampled instruction counts with microarchitectural details only makes sense when this selection is properly matched.
+[^96]: Comparing sampled instruction counts with microarchitectural details only makes sense when this selection is properly matched.
 
-[^98]: You can use this to gain insight into how the code *may* behave on other processors.
+[^97]: You can use this to gain insight into how the code *may* behave on other processors.
 
-Clicking on the * Save* button lets you write the disassembly listing to a file. You can then manually extract some critical loop kernel and pass it to a CPU simulator, such as *LLVM Machine Code Analyzer* (`llvm-mca`)[^99], to see how the code is executed and if there are any pipeline bubbles. Consult the `llvm-mca` documentation for more details. Alternatively, you might click the right mouse button on a jump arrow and save only the instructions within the jump range, using the * Save jump range* button.
+Clicking on the * Save* button lets you write the disassembly listing to a file. You can then manually extract some critical loop kernel and pass it to a CPU simulator, such as *LLVM Machine Code Analyzer* (`llvm-mca`)[^98], to see how the code is executed and if there are any pipeline bubbles. Consult the `llvm-mca` documentation for more details. Alternatively, you might click the right mouse button on a jump arrow and save only the instructions within the jump range, using the * Save jump range* button.
 
-[^99]: <https://llvm.org/docs/CommandGuide/llvm-mca.html>
+[^98]: <https://llvm.org/docs/CommandGuide/llvm-mca.html>
 
 
 -----
@@ -4447,9 +4579,9 @@ The selected instruction will be highlighted in white, while its dependencies wi
 
 - *Yellow* -- Register is read and then modified.
 
-- *Grey* -- Value in a register is either discarded (overwritten) or was already consumed by an earlier instruction (i.e., it is readily available[^100]). The profiler will not follow the dependency chain further.
+- *Grey* -- Value in a register is either discarded (overwritten) or was already consumed by an earlier instruction (i.e., it is readily available[^99]). The profiler will not follow the dependency chain further.
 
-[^100]: This is actually a bit of simplification. Run a pipeline simulator, e.g., `llvm-mca` for a better analysis.
+[^99]: This is actually a bit of simplification. Run a pipeline simulator, e.g., `llvm-mca` for a better analysis.
 
 Search for dependencies follows program control flow, so there may be multiple producers and consumers for any single register. While the *after* and *before* guidelines mentioned above hold in the general case, things may be more complicated when there's a large number of conditional jumps in the code. Note that dependencies further away than 64 instructions are not displayed.
 
@@ -4466,19 +4598,19 @@ In this mode, the source and assembly panes will be displayed together, providin
 
 #### Instruction pointer cost statistics
 
-If automated call stack sampling (see chapter [3.17.5](#sampling)) was performed, additional profiling information will be available. The first column of source and assembly views will contain percentage counts of collected instruction pointer samples for each displayed line, both in numerical and graphical bar form. You can use this information to determine which function line takes the most time. The displayed percentage values are heat map color-coded, with the lowest values mapped to dark red and the highest to bright yellow. The color code will appear next to the percentage value and on the scroll bar so that you can identify 'hot' places in the code at a glance.
+If automated call stack sampling (see chapter [3.18.5](#sampling)) was performed, additional profiling information will be available. The first column of source and assembly views will contain percentage counts of collected instruction pointer samples for each displayed line, both in numerical and graphical bar form. You can use this information to determine which function line takes the most time. The displayed percentage values are heat map color-coded, with the lowest values mapped to dark red and the highest to bright yellow. The color code will appear next to the percentage value and on the scroll bar so that you can identify "hot" places in the code at a glance.
 
-By default, samples are displayed only within the selected symbol, in isolation. In some cases, you may, however, want to include samples from functions that the selected symbol called. To do so, enable the * Child calls* option, which you may also temporarily toggle by holding the Z key. You can also click the  drop down control to display a child call distribution list[^101], which shows each known function[^102] that the symbol called. Make sure to familiarize yourself with section [5.15.1](#readingcallstacks) to be able to read the results correctly. Each child call on the list has an attributed time cost, which is also displayed as a percentage of the child calls (\"% Calls\") and the percentage of the total symbol time (\"% Total\").
+By default, samples are displayed only within the selected symbol, in isolation. In some cases, you may, however, want to include samples from functions that the selected symbol called. To do so, enable the * Child calls* option, which you may also temporarily toggle by holding the Z key. You can also click the  drop down control to display a child call distribution list[^100], which shows each known function[^101] that the symbol called. Make sure to familiarize yourself with section [5.16.1](#readingcallstacks) to be able to read the results correctly. Each child call on the list has an attributed time cost, which is also displayed as a percentage of the child calls ("% Calls") and the percentage of the total symbol time ("% Total").
 
-[^101]: The height of the list can be changed by dragging the separator bar.
+[^100]: The height of the list can be changed by dragging the separator bar.
 
-[^102]: You should remember that these are results of random sampling. Some function calls may be missing here.
+[^101]: You should remember that these are results of random sampling. Some function calls may be missing here.
 
 The total number of collected samples is displayed in the UI under the * Samples* label and converted to a time approximation at the * Time* label. The displayed values show the local count if child calls are disabled and the total count if the option is enabled. In either case, the number of samples attributed only to the child calls is displayed in parentheses with the + or - symbol and as a percentage of the total symbol time.
 
 Instruction timings can be viewed as a group. To begin constructing such a group, click the left mouse button on the percentage value. Additional instructions can be added using the Ctrl key while holding the Shift key will allow selection of a range. To cancel the selection, click the right mouse button on a percentage value. Group statistics can be seen at the bottom of the pane.
 
-Clicking the middle mouse button on the percentage value of an assembly instruction will display entry call stacks of the selected sample (see chapter [5.17](#stackwindows)). This functionality is only available for instructions that have collected sampling data and only in the assembly view, as the source code may be inlined multiple times, which would result in ambiguous location data. Note that number of entry call stacks is displayed in a tooltip for a quick reference.
+Clicking the middle mouse button on the percentage value of an assembly instruction will display entry call stacks of the selected sample (see chapter [5.18](#stackwindows)). This functionality is only available for instructions that have collected sampling data and only in the assembly view, as the source code may be inlined multiple times, which would result in ambiguous location data. Note that number of entry call stacks is displayed in a tooltip for a quick reference.
 
 The sample data source is controlled by the * Function* control in the window header. If this option should be disabled, sample data will represent the whole symbol. If it is enabled, then the sample data will only include the selected function. You can change the currently selected function by opening the drop-down box, which includes time statistics. The time percentage values of each contributing function are calculated relative to the total number of samples collected within the symbol.
 
@@ -4500,15 +4632,15 @@ Selecting the *Limit range* option will restrict counted samples to the time ext
 
 #### Inspecting hardware samples
 
-As described in chapter [3.17.6](#hardwaresampling), on some platforms, Tracy can capture the internal statistics counted by the CPU hardware. If this data has been collected, the * Cost* selection list will be available. It allows changing what is taken into consideration for display by the cost statistics. You can select the following options:
+As described in chapter [3.18.6](#hardwaresampling), on some platforms, Tracy can capture the internal statistics counted by the CPU hardware. If this data has been collected, the * Cost* selection list will be available. It allows changing what is taken into consideration for display by the cost statistics. You can select the following options:
 
 - *Sample count* -- this selects the instruction pointer statistics, collected by call stack sampling performed by the operating system. This is the default data shown when hardware samples have not been captured.
 
 - *Cycles* -- an option very similar to the *sample count*, but the data is collected directly by the CPU hardware counters. This may make the results more reliable.
 
-- *Branch impact* -- indicates places where many branch instructions are issued, and at the same time, incorrectly predicted. Calculated as $\sqrt{\text{\#branch instructions}*\text{\#branch misses}}$. This is more useful than the raw branch miss rate, as it considers the number of events taking place.
+- *Branch impact* -- indicates places where many branch instructions are issued, and at the same time, incorrectly predicted. Calculated as √(#branch instructions\*#branch misses). This is more useful than the raw branch miss rate, as it considers the number of events taking place.
 
-- *Cache impact* -- similar to *branch impact*, but it shows cache miss data instead. These values are calculated as $\sqrt{\text{\#cache references}*\text{\#cache misses}}$ and will highlight places with lots of cache accesses that also miss.
+- *Cache impact* -- similar to *branch impact*, but it shows cache miss data instead. These values are calculated as √(#cache references\*#cache misses) and will highlight places with lots of cache accesses that also miss.
 
 - The rest of the available selections just show raw values gathered from the hardware counters. These are: *Retirements*, *Branches taken*, *Branch miss*, *Cache access* and *Cache miss*.
 
@@ -4532,13 +4664,13 @@ If the * Impact* switch is enabled, the branch and cache columns will show ho
 
 The profiler can group call stacks leading to certain events and display the resulting information in a variety of ways. In essence, this shows the code paths that lead to these events and the distribution of these paths. At this moment, these events include:
 
-- **Sample entry stacks** -- this window shows all the paths that lead to execution of the selected symbol. Requires sampling (chapter [3.17.5](#sampling)) to be active.
+- **Sample entry stacks** -- this window shows all the paths that lead to execution of the selected symbol. Requires sampling (chapter [3.18.5](#sampling)) to be active.
 
-- **Wait stacks** -- this windows shows all the places where the application was sleeping. See chapter [3.17.5.1](#waitstacks) for more information.
+- **Wait stacks** -- this windows shows all the places where the application was sleeping. See chapter [3.18.5.1](#waitstacks) for more information.
 
 The call stack paths may be displayed in the following ways:
 
-- * List* -- shows all unique stacks, sorted by the number of times they were observed. The frame list is similar to the call stack window, described in chapter [5.15](#callstackwindow).
+- * List* -- shows all unique stacks, sorted by the number of times they were observed. The frame list is similar to the call stack window, described in chapter [5.16](#callstackwindow).
 
 - * Bottom-up tree* -- displays stacks in the form of a collapsible tree, which starts at the bottom of the call stack.
 
@@ -4561,9 +4693,11 @@ This window presents information and statistics about a lock. The lock events co
 
 ## Frame image playback window {#playback}
 
-You may view a live replay of the profiled application screen captures (see section [3.3.3](#frameimages)) using this window. Playback is controlled by the * Play* and * Pause* buttons and the *Frame image* slider can be used to scrub to the desired timestamp. Alternatively you may use the ** and ** buttons to change single frame back or forward.
+You may view a live replay of the profiled application screen captures (see section [3.3.3](#frameimages)) using this window. Playback is controlled by the * Play* and * Pause* buttons, and the *Frame image* slider can be used to scrub to the desired timestamp. Alternatively, you may use the ** and ** buttons, or use the mouse wheel on either the *Frame image* slider or the displayed frame image to change a single frame backward or forward.
 
-If the *Sync timeline* option is selected, the profiler will focus the timeline view on the frame corresponding to the currently displayed screenshot. The *Zoom 2$\times$* option enlarges the image for easier viewing.
+If the *Sync timeline* option is selected, the profiler will focus the timeline view on the frame corresponding to the currently displayed screenshot. The *Zoom 2×* option enlarges the image for easier viewing.
+
+Enabling the *Limit frame range* option allows you to manually set the frame image playback region. Adjustments can be made using the start and end sliders or by copying the time range from either an annotation (section [5.23](#annotationlist)) or one of the time range limits (section [5.24](#timerangelimits)). If the *Require frame coverage* option is enabled, source regions must cover at least 75% of the frame. Otherwise any amount of overlap is sufficient.
 
 The following parameters also accompany each displayed frame image: *timestamp*, showing at which time the image was captured, *frame*, displaying the numerical value of the corresponding frame, and *ratio*, telling how well the in-memory loss-less compression was able to reduce the image data size.
 
@@ -4577,7 +4711,7 @@ The following parameters also accompany each displayed frame image: *timestamp*,
 
 ## CPU data window {#cpudata}
 
-Statistical data about all processes running on the system during the capture is available in this window if the profiler performed context switch capture (section [3.17.3](#contextswitches)).
+Statistical data about all processes running on the system during the capture is available in this window if the profiler performed context switch capture (section [3.18.3](#contextswitches)).
 
 Each running program has an assigned process identifier (PID), which is displayed in the first column. The profiler will also display a list of thread identifiers (TIDs) if a program entry is expanded.
 
@@ -4587,13 +4721,20 @@ The profiled program is highlighted using green color. Furthermore, the yellow h
 
 ## Annotation settings window {#annotationsettings}
 
-In this window, you may modify how a timeline annotation (section [5.3.1](#annotatingtrace)) is presented by setting its text description or selecting region highlight color. If the note is no longer needed, you may also remove it here.
+In this window, you may modify how a timeline annotation (section [5.3.1](#annotatingtrace)) is presented by setting its text description or selecting region highlight color. A random annotation description can be set with the * Generate name* button. If the note is no longer needed, you may also temporarily hide or remove it here.
+
+
+-----
+
+ - Dice icon
 
 ## Annotation list window {#annotationlist}
 
-This window lists all annotations marked on the timeline. Each annotation is presented, as shown on figure [26](#figannlist). From left to right the elements are:
+This window lists all annotations marked on the timeline. Each annotation is presented, as shown on figure [28](#figannlist). From left to right the elements are:
 
-- * Edit* -- Opens the annotation settings window (section [5.21](#annotationsettings)).
+- * Visible* -- Makes the annotation visible or not on the timeline.
+
+- * Edit* -- Opens the annotation settings window (section [5.22](#annotationsettings)).
 
 - * Zoom* -- Zooms timeline to the annotation extent.
 
@@ -4608,34 +4749,42 @@ This window lists all annotations marked on the timeline. Each annotation is pre
 <figcaption>Annotation list entry</figcaption>
 </figure>
 
-A new view-sized annotation can be added in this window by pressing the *+ Add annotation* button. This effectively saves your current viewport for further reference.
+A new view-sized annotation can be added in this window by pressing the * Add annotation* button. This effectively saves your current viewport for further reference.
 
 
 -----
 
+ - Check icon
  - Pen To Square icon
  - Microscope icon
  - Trash Can icon
+ - Note Sticky icon
 
 ## Time range limits {#timerangelimits}
 
-This window displays information about time range limits (section [5.3](#timeranges)) for find zone (section [5.7](#findzone)), statistics (section [5.6](#statistics)), flame graph (section [5.9](#flamegraph)), memory (section [5.10](#memorywindow)) and wait stacks (section [5.17](#stackwindows)) results. Each limit can be enabled or disabled and adjusted through the following options:
-
-- *Limit to view* -- Set the time range limit to current view.
+This window displays information about time range limits (section [5.3](#timeranges)) for find zone (section [5.7](#findzone)), statistics (section [5.6](#statistics)), flame graph (section [5.9](#flamegraph)), wait stacks (section [5.18](#stackwindows)), memory (section [5.10](#memorywindow)) and frame statistics (section [5.14](#framestatistics)) results. Each limit can be enabled or disabled and adjusted through the following options:
 
 - * Focus* -- Set the timeline view to the time range extent.
 
-- * From annotation* -- Allows using the annotation region for limiting purposes.
+- * Limit to view* -- Set the time range limit to current view.
 
-- * Copy find zone* -- Copies the find zone time range limit.
+- * Add annotation* -- Create a new annotation matching the time range.
 
-- * Copy statistics* -- Copies the statistics time range limit.
+-  Copy from:
 
-- * Copy flame* -- Copies the flame graph time range limit.
+  - * Annotation* -- Allows using the annotation region for limiting purposes.
 
-- * Copy wait stacks* -- Copies the wait stacks time range limit.
+  - * Find zone* -- Copies the find zone time range limit.
 
-- * Copy memory* -- Copies the memory time range limit.
+  - * Statistics* -- Copies the statistics time range limit.
+
+  - * Flame graph* -- Copies the flame graph time range limit.
+
+  - * Wait stacks* -- Copies the wait stacks time range limit.
+
+  - * Memory* -- Copies the memory time range limit.
+
+  - * Frame statistics* -- Copies the frame statistics range limit.
 
 Note that ranges displayed in the window have color hints that match the color of the striped regions on the timeline.
 
@@ -4643,12 +4792,15 @@ Note that ranges displayed in the window have color hints that match the color o
 -----
 
  - Microscope icon
+ - Arrows Left Right To Line icon
  - Note Sticky icon
+ - Copy icon
  - Magnifying Glass icon
  - Arrow Up Wide Short icon
  - Fire Flame Curved icon
  - Hourglass Half icon
  - Memory icon
+ - Images icon
 
 # Tracy Assist {#tracyassist}
 
@@ -4670,11 +4822,47 @@ This feature can be completely disabled in the *Global settings*, as described i
 >
 > The only way to access the assistant is to run everything locally on your system. This ensures that everything you do stays private and that you won't be subject to forced changes in features or terms and conditions. You should own the tools you work with instead of renting them from someone else.
 
+If you just want to get things running and have a reasonably powerful hardware, follow the steps below.
+
+1.  Go to <https://llama.app/> and follow instructions to install llama.cpp.
+
+2.  Create the following `llama.ini` configuration file:
+
+        ; Launch with: llama-server --models-preset llama.ini
+
+        [*]
+        version = 1
+        cache-type-k = q8_0
+        cache-type-v = q8_0
+
+        [unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_M]
+        hf = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_M
+        parallel = 1
+        spec-default = true
+        spec-type = draft-mtp
+        chat-template-kwargs = {"preserve_thinking": true}
+        ctx-size = 100000
+
+        [nomic-ai/nomic-embed-text-v1.5-GGUF:Q4_K_M]
+        hf = nomic-ai/nomic-embed-text-v1.5-GGUF:Q4_K_M
+        embedding = true
+        parallel = 4
+        ctx-size = 8192
+        cache-ram = 0
+
+3.  Run `llama serve --models-preset llama.ini`
+
+4.  Connect to llama.cpp inside the profiler!
+
+The models will be automatically downloaded when trying to access them for the first time. It may take some time.
+
+If you have the resources available you may try replacing `unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_M` with `unsloth/Qwen3.6-27B-MTP-GGUF:Q4_K_M` in the configuration file to get a more capable model.
+
 ## Service provider
 
-To get started, you will need to install an LLM[^103] provider on your system. Any service that's compatible with the standard API should work, but some may work better than others. The LLM field is advancing quickly, with new models frequently being released that often require specific support from provider services to deliver the best experience.
+To get started, you will need to install an LLM[^102] provider on your system. Any service that's compatible with the standard API should work, but some may work better than others. The LLM field is advancing quickly, with new models frequently being released that often require specific support from provider services to deliver the best experience.
 
-[^103]: Large Language Model.
+[^102]: Large Language Model.
 
 The ideal LLM provider should be a system service that loads and unloads models on demand and swaps between them as needed. It should provide a service to a variety of user-facing applications running on the system. The ideal provider should also implement a time-to-live mechanism that unloads models after a period of inactivity to make resources available to other programs. The user should be able to use the ideal provider to find and download models that they can run on their hardware.
 
@@ -4684,7 +4872,7 @@ There are no ideal LLM providers, but here are some options:
 
 - *llama-swap* (<https://github.com/mostlygeek/llama-swap>) -- Wrapper for llama.cpp that allows model selection. Recommended to augment the above.
 
-- *LM Studio* (<https://lmstudio.ai/>) -- It is easy to install on all platforms and has a GUI. But it is overwhelming when it comes to the number of options it offers. Some people may question the licensing. Its features lag a behind llama.cpp. Manual configuration of each model is required. To get it to work properly, go to it settings (using the gear icon in the bottom right corner of the program window), then select the Developer tab and enable \"When applicable, separate `reasoning_content` and `content` in API responses\".
+- *LM Studio* (<https://lmstudio.ai/>) -- It is easy to install on all platforms and has a GUI. But it is overwhelming when it comes to the number of options it offers. Some people may question the licensing. Its features lag a behind llama.cpp. Manual configuration of each model is required. To get it to work properly, go to it settings (using the gear icon in the bottom right corner of the program window), then select the Developer tab and enable "When applicable, separate `reasoning_content` and `content` in API responses".
 
 ## Model selection
 
@@ -4701,19 +4889,19 @@ A good *starting* point that will work fairly well on almost any hardware is the
 > [!TIP]
 > **Model quantization**
 >
-> Running a model with full 32-bit floating-point weights is not feasible due to memory requirements. Instead, the model parameters are quantized, for which 4 bits is typically the sweet spot. In general, the lower the parameter precision, the more \"dumbed down\" the model becomes. However, the loss of model coherence due to quantization is less than the benefit of being able to run a larger model.
+> Running a model with full 32-bit floating-point weights is not feasible due to memory requirements. Instead, the model parameters are quantized, for which 4 bits is typically the sweet spot. In general, the lower the parameter precision, the more "dumbed down" the model becomes. However, the loss of model coherence due to quantization is less than the benefit of being able to run a larger model.
 
 > [!TIP]
 > **Model size**
 >
-> Another thing to consider when selecting a model is its size, which is typically measured in billions of parameters (weights) and written as 4B, for example. The model size determines how much memory, computation, and time are required to run it. Generally, the larger the model, the \"smarter\" its responses will be.
+> Another thing to consider when selecting a model is its size, which is typically measured in billions of parameters (weights) and written as 4B, for example. The model size determines how much memory, computation, and time are required to run it. Generally, the larger the model, the "smarter" its responses will be.
 >
-> Most modern models will be \"Mixture of Experts\", or MoE, and their size will be denoted, for example, 35B-A3B. This means that the model size is 35B, but only 3B parameters are active and used to compute the next token. In practice, this means that the model has knowledge closer to the full, dense 35B model but speed and GPU memory requirements closer to the fast 3B model.
+> Most modern models will be "Mixture of Experts", or "MoE", and their size will be denoted, for example, 35B-A3B. This means that the model size is 35B, but only 3B parameters are active and used to compute the next token. In practice, this means that the model has knowledge closer to the full, dense 35B model but speed and GPU memory requirements closer to the fast 3B model.
 
 > [!TIP]
 > **Context size**
 >
-> The model size only indicates the minimum memory requirement. For the model to operate properly, you also need to set the context size, which determines how much information from the conversation the model can \"remember\". This size is measured in tokens, and a very rough approximation is that each token is a combination of three or four letters.
+> The model size only indicates the minimum memory requirement. For the model to operate properly, you also need to set the context size, which determines how much information from the conversation the model can "remember". This size is measured in tokens, and a very rough approximation is that each token is a combination of three or four letters.
 >
 > Each token present in the context window may require a fairly large amount of memory, and that can quickly add up to gigabytes. Some modern models use solutions that greatly reduce context memory requirements, but that varies from model to model. If needed, the KV cache used for context can be quantized, just like model parameters. In this case, the recommended size per weight is 8 bits.
 >
@@ -4723,7 +4911,7 @@ A good *starting* point that will work fairly well on almost any hardware is the
 
 Sometimes Tracy needs to do some language processing where speed is more important than the smarts. The default setting is to use the chat model with the reasoning disabled, which is fine for most applications.
 
-It may be more convenient to use a small, quick model instead, in which case enable the *Fast model* checkbox and choose the second model. To save precious GPU resources for the chat model, you may want to keep this model entirely in system RAM (set `-ngl 0` for llama.cpp or set \"GPU offload\" to 0 in LM Studio) and disable the KV cache offload to GPU (set `-nkvo` for llama.cpp or disable \"Offload KV Cache to GPU Memory\" in LM Studio).
+It may be more convenient to use a small, quick model instead, in which case enable the *Fast model* checkbox and choose the second model. To save precious GPU resources for the chat model, you may want to keep this model entirely in system RAM (set `-ngl 0` for llama.cpp or set "GPU offload" to 0 in LM Studio) and disable the KV cache offload to GPU (set `-nkvo` for llama.cpp or disable "Offload KV Cache to GPU Memory" in LM Studio).
 
 ### Embedding model
 
@@ -4741,7 +4929,7 @@ So, which model should you run and what hardware you need to be able to do so? L
 
 As a rule of thumb, the specified number of parameters is how much total memory is needed to run the model with 8-bit quantization. Another way to get a rough estimate is to look at the model file size. Strive to fit the active parameters completely into VRAM, leaving space for computation scratch space and the context.
 
-To make this practical, the 35B-A3B model at 2 bit quantization requires $35 * 2 / 8 = 8.75$ GB, which fits into the 4 + 16 GB budget in the example above. The 3B active parameters similarly calculate to 0.75 GB, with additional 1 GB or so needed for computation buffer and another 1 GB for the 50K context, which is less than the 4 GB of VRAM available, making everything fit.
+To make this practical, the 35B-A3B model at 2 bit quantization requires 35 \* 2 / 8 = 8.75 GB, which fits into the 4 + 16 GB budget in the example above. The 3B active parameters similarly calculate to 0.75 GB, with additional 1 GB or so needed for computation buffer and another 1 GB for the 50K context, which is less than the 4 GB of VRAM available, making everything fit.
 
 ## Usage {#llmusage}
 
@@ -4767,7 +4955,7 @@ The control section allows you to clear the chat contents, reconnect to the LLM 
 
 - * Internet access* -- Determines whether the model can access network resources such as Wikipedia queries, web searches, and web page retrievals.
 
-- * Annotate call stacks* -- Enables automatic annotation of call stacks (see section [5.15](#callstackwindow)). Disabled by default, as it requires proper configuration of the fast model.
+- * Annotate call stacks* -- Enables automatic annotation of call stacks (see section [5.16](#callstackwindow)). Disabled by default, as it requires proper configuration of the fast model.
 
 - * Show summary* -- Shows a short conversation topic after the initial question is asked.
 
@@ -4791,7 +4979,7 @@ The horizontal meter directly below shows how much of the context size has been 
 
 The chat section contains the conversation with the automated assistant with alternating user and assistant turns. Clicking on the * User* role icon removes the chat content up to the selected question. Similarly, clicking on the * Assistant* role icon removes the conversation content up to this point and generates another response from the assistant.
 
-The assistant may give preliminary replies to the user, for example, *\"I will now check the source of function foobar\"*, followed by performing the actual check, then a continuation of the reply, such as *\"Now I can see that\...\"*. To make reading these tiered replies easier, only the most recent reply is printed in normal text, while the preliminary responses are dimmed out.
+The assistant may give preliminary replies to the user, for example, "I will now check the source of function foobar", followed by performing the actual check, then a continuation of the reply, such as "Now I can see that\...". To make reading these tiered replies easier, only the most recent reply is printed in normal text, while the preliminary responses are dimmed out.
 
 Each assistant reply contains a note about the language model that was used and the time it took to generate the text.
 
@@ -4924,7 +5112,7 @@ Tracy can import data generated by other profilers. This external data cannot be
       $ tracy-profiler mytracefile.tracy
   ```
 
-- Fuchsia's tracing format[^104] data through the `tracy-import-fuchsia` utility. This format has many commonalities with the chrome:tracing format, but it uses a compact and efficient binary encoding that can help lower tracing overhead. The file extension is `.fxt` or `.fxt.zst`.
+- Fuchsia's tracing format[^103] data through the `tracy-import-fuchsia` utility. This format has many commonalities with the chrome:tracing format, but it uses a compact and efficient binary encoding that can help lower tracing overhead. The file extension is `.fxt` or `.fxt.zst`.
 
   To this this tool, assuming it's compiled, run:
 
@@ -4933,7 +5121,7 @@ Tracy can import data generated by other profilers. This external data cannot be
       $ tracy-profiler mytracefile.tracy
   ```
 
-[^104]: <https://fuchsia.dev/fuchsia-src/reference/tracing/trace-format>
+[^103]: <https://fuchsia.dev/fuchsia-src/reference/tracing/trace-format>
 
 > [!TIP]
 > **Compressed traces**
@@ -4966,9 +5154,9 @@ Various files at the root configuration directory store common profiler state su
 
 Trace files saved on disk are immutable and can't be changed. Still, it may be desirable to store additional per-trace information to be used by the profiler, for example, a custom description of the trace or the timeline view position used in the previous profiling session.
 
-This external data is stored in the `user/[letter]/[program]/[week]/[epoch]` directory, relative to the configuration's root directory. The `program` part is the name of the profiled application (for example `program.exe`). The `letter` part is the first letter of the profiled application's name. The `week` part is a count of weeks since the Unix epoch, and the `epoch` part is a count of seconds since the Unix epoch. This rather unusual convention prevents the creation of directories with hundreds of entries.
+This external sidecar data is stored by default in the `sidecar/[program]/[date].json` file, relative to the configuration root directory. The `program` part is the name of the profiled application (for example `program.exe`). The `date` part is in year-month-day-*dash*-hour-minutes-seconds format.
 
-The profiler never prunes user settings.
+The sidecar file can be made public (see section [5.13](#traceinfo)), in which case it will be placed next to the trace file with the `.json` extension, allowing both files to be easily moved or copied.
 
 ## Cache files
 

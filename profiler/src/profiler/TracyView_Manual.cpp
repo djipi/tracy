@@ -25,6 +25,8 @@ void View::DrawManual()
     ImGui::PopStyleColor();
     ImGui::SameLine();
     TextDisabledUnformatted( "This user manual is missing features. See the PDF file for the proper version." );
+    ImGui::SameLine();
+    if( ImGui::Button( ICON_FA_BOOK " PDF Manual" ) ) OpenWebpage( "https://github.com/wolfpld/tracy/releases" );
 
     ImGui::Separator();
     ImGui::BeginChild( "##usermanual" );
@@ -88,6 +90,7 @@ void View::DrawManual()
         if( ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen() )
         {
             m_activeManualChunk = i;
+            m_manualPositionReset = true;
         }
     }
     while( level-- > 0 ) ImGui::TreePop();
@@ -142,8 +145,8 @@ void View::DrawManual()
         ImGui::Dummy( ImVec2( 0, ImGui::GetTextLineHeight() * 0.25f ) );
         ImGui::PopFont();
 
-        const auto separator = chunk.text.find( "-----" );
-        const auto size = separator == std::string::npos ? chunk.text.size() : separator;
+        const auto separator = chunk.text.find( "\n-----" );
+        const auto size = separator == std::string::npos ? chunk.text.size() : ( separator + 1 );
 
         m_markdown.Print( chunk.text.c_str(), size );
     }

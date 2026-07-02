@@ -81,6 +81,8 @@ enum class QueueType : uint8_t
     SourceCodeMetadata,
     FiberEnter,
     FiberLeave,
+    SectionEnter,
+    SectionLeave,
     Terminate,
     KeepAlive,
     ThreadContext,
@@ -122,6 +124,8 @@ enum class QueueType : uint8_t
     CpuTopology,
     SingleStringData,
     SecondStringData,
+    SingleStringData8,
+    SecondStringData8,
     MemNamePayload,
     ThreadGroupHint,
     GpuZoneAnnotation,
@@ -307,6 +311,24 @@ struct QueueFiberLeave
     uint32_t thread;
 };
 
+struct QueueSectionEnter
+{
+    int64_t time;
+    uint32_t id;
+};
+
+struct QueueSectionEnterFat : public QueueSectionEnter
+{
+    uint64_t text;      // ptr
+    uint16_t size;
+};
+
+struct QueueSectionLeave
+{
+    int64_t time;
+    uint32_t id;
+};
+
 struct QueueLockTerminate
 {
     uint32_t id;
@@ -390,7 +412,7 @@ enum class MessageSeverity : uint8_t
     Debug,   // Describes variable states and details about specific internal events in the software, that are useful for investigations.
     Info,    // Describes normal events, which inform on the expected progress and state of your software.
     Warning, // Describes potentially dangerous situations caused by unexpected events and states.
-    Error,   // Describes the occurance of unexpected behavior. Does not interrupt the execution of the software.
+    Error,   // Describes the occurrence of unexpected behavior. Does not interrupt the execution of the software.
     Fatal,   // Describes a critical event that will lead to a software failure/crash.
     COUNT
 };
@@ -492,7 +514,8 @@ enum class GpuContextType : uint8_t
     Metal,
     Custom,
     CUDA,
-    Rocprof
+    Rocprof,
+    WebGPU
 };
 
 enum GpuContextFlags : uint8_t
@@ -772,7 +795,7 @@ struct QueueParamSetup
 {
     uint32_t idx;
     uint64_t name;      // ptr
-    uint8_t isBool;
+    uint8_t type;
     int32_t val;
 };
 
@@ -918,6 +941,9 @@ struct QueueItem
         QueueSourceCodeNotAvailable sourceCodeNotAvailable;
         QueueFiberEnter fiberEnter;
         QueueFiberLeave fiberLeave;
+        QueueSectionEnter sectionEnter;
+        QueueSectionEnterFat sectionEnterFat;
+        QueueSectionLeave sectionLeave;
         QueueGpuZoneAnnotation zoneAnnotation;
     };
 };
@@ -997,6 +1023,8 @@ static constexpr size_t QueueDataSize[] = {
     sizeof( QueueHeader ),                                  // SourceCodeMetadata - not for wire transfer
     sizeof( QueueHeader ) + sizeof( QueueFiberEnter ),
     sizeof( QueueHeader ) + sizeof( QueueFiberLeave ),
+    sizeof( QueueHeader ) + sizeof( QueueSectionEnter ),
+    sizeof( QueueHeader ) + sizeof( QueueSectionLeave ),
     // above items must be first
     sizeof( QueueHeader ),                                  // terminate
     sizeof( QueueHeader ),                                  // keep alive
@@ -1039,6 +1067,8 @@ static constexpr size_t QueueDataSize[] = {
     sizeof( QueueHeader ) + sizeof( QueueCpuTopology ),
     sizeof( QueueHeader ),                                  // single string data
     sizeof( QueueHeader ),                                  // second string data
+    sizeof( QueueHeader ),                                  // single string data, 8 bit length
+    sizeof( QueueHeader ),                                  // second string data, 8 bit length
     sizeof( QueueHeader ) + sizeof( QueueMemNamePayload ),
     sizeof( QueueHeader ) + sizeof( QueueThreadGroupHint ),
     sizeof( QueueHeader ) + sizeof( QueueGpuZoneAnnotation ), // GPU zone annotation

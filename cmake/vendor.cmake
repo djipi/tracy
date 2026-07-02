@@ -142,6 +142,7 @@ CPMAddPackage(
     PATCHES
         "${CMAKE_CURRENT_LIST_DIR}/imgui-emscripten.patch"
         "${CMAKE_CURRENT_LIST_DIR}/imgui-loader.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/imgui-no-samplers.patch"
 )
 
 set(IMGUI_SOURCES
@@ -184,7 +185,7 @@ if(NOT NO_FILESELECTOR AND NOT EMSCRIPTEN)
     CPMAddPackage(
         NAME nfd
         GITHUB_REPOSITORY btzy/nativefiledialog-extended
-        GIT_TAG v1.3.0
+        GIT_TAG 3cd252a8f7ca32419b1ca235c2990ba6a0ecba7c
         EXCLUDE_FROM_ALL TRUE
         OPTIONS
             "NFD_PORTAL ${NFD_PORTAL}"
@@ -217,7 +218,9 @@ CPMAddPackage(
 CPMAddPackage(
     NAME md4c
     GITHUB_REPOSITORY mity/md4c
-    GIT_TAG release-0.5.3
+    GIT_TAG 65c6c9d72cebd9a731aaa5597414ce04d9ea5de3
+    OPTIONS
+        "BUILD_SHARED_LIBS OFF"
     EXCLUDE_FROM_ALL TRUE
 )
 
@@ -254,7 +257,7 @@ if(NOT EMSCRIPTEN)
     CPMAddPackage(
         NAME usearch
         GITHUB_REPOSITORY unum-cloud/usearch
-        GIT_TAG v2.25.2
+        GIT_TAG v2.25.3
         EXCLUDE_FROM_ALL TRUE
     )
 
@@ -269,7 +272,7 @@ if(NOT EMSCRIPTEN)
         CPMAddPackage(
             NAME pugixml
             GITHUB_REPOSITORY zeux/pugixml
-            GIT_TAG v1.15
+            GIT_TAG v1.16
             EXCLUDE_FROM_ALL TRUE
         )
         add_library(TracyPugixml INTERFACE)
@@ -287,7 +290,7 @@ if(NOT EMSCRIPTEN)
         CPMAddPackage(
             NAME libcurl
             GITHUB_REPOSITORY curl/curl
-            GIT_TAG curl-8_20_0
+            GIT_TAG curl-8_21_0
             OPTIONS
                 "BUILD_STATIC_LIBS ON"
                 "BUILD_SHARED_LIBS OFF"

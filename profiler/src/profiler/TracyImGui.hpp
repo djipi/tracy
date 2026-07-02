@@ -13,7 +13,7 @@
 #include "imgui_internal.h"
 
 #include "../public/common/TracyForceInline.hpp"
-#include "IconsFontAwesome6.h"
+#include "IconsFontAwesome7.h"
 #include "TracySourceTokenizer.hpp"
 
 ImTextureID GetProfilerIconTexture();
@@ -290,7 +290,7 @@ static constexpr const uint32_t AsmSyntaxColors[] = {
 
 [[maybe_unused]] static tracy_force_inline void TooltipIfHovered( const char* text )
 {
-    if( !ImGui::IsItemHovered() ) return;
+    if( !ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) ) return;
     ImGui::BeginTooltip();
     ImGui::TextUnformatted( text );
     ImGui::EndTooltip();

@@ -524,7 +524,7 @@ static const char* GetHostInfo()
     auto ptr = buf;
 #if defined _WIN32
 #  if defined TRACY_WIN32_NO_DESKTOP
-    auto GetVersion = &::GetVersionEx;
+    auto GetVersion = &::GetVersionExW;
 #  else
     auto GetVersion = (t_RtlGetVersion)GetProcAddress( GetModuleHandleA( "ntdll.dll" ), "RtlGetVersion" );
 #  endif
@@ -1408,9 +1408,30 @@ namespace
 // 1a. But s_queue is needed for initialization of variables in point 2.
 extern moodycamel::ConcurrentQueue<QueueItem> s_queue;
 
+// A producer token may be created before s_initTime is constructed (the dynamic loader
+// runs shared object initializers before any of the executable's constructors, and such
+// an initializer may emit a zone). Remember the time of such an early token creation, so
+// that the init time can be backdated accordingly and no event timestamp precedes the
+// trace epoch.
+static std::atomic<int64_t> s_earlyTokenTime { 0 };
+static bool s_initTimeConstructed = false;
+
 // 2. If these variables would be in the .CRT$XCB section, they would be initialized only in main thread.
 thread_local moodycamel::ProducerToken init_order(107) s_token_detail( s_queue );
-thread_local ProducerWrapper init_order(108) s_token { s_queue.get_explicit_producer( s_token_detail ) };
+
+static moodycamel::ConcurrentQueue<QueueItem>::ExplicitProducer* CreateProducerToken()
+{
+    auto ptr = s_queue.get_explicit_producer( s_token_detail );
+    if( !s_initTimeConstructed )
+    {
+        const auto t = Profiler::GetTime();
+        auto e = s_earlyTokenTime.load( std::memory_order_relaxed );
+        while( ( e == 0 || t < e ) && !s_earlyTokenTime.compare_exchange_weak( e, t, std::memory_order_relaxed ) ) {}
+    }
+    return ptr;
+}
+
+thread_local ProducerWrapper init_order(108) s_token { CreateProducerToken() };
 thread_local ThreadHandleWrapper init_order(104) s_threadHandle { detail::GetThreadHandleImpl() };
 
 #  ifdef _MSC_VER
@@ -1419,12 +1440,36 @@ thread_local ThreadHandleWrapper init_order(104) s_threadHandle { detail::GetThr
 #    pragma init_seg( ".CRT$XCB" )
 #  endif
 
-static InitTimeWrapper init_order(101) s_initTime { SetupHwTimer() };
+static int64_t GetInitTimeImpl()
+{
+    auto t = SetupHwTimer();
+    const auto e = s_earlyTokenTime.load( std::memory_order_relaxed );
+    if( e != 0 && e < t ) t = e;
+    s_initTimeConstructed = true;
+    return t;
+}
+static InitTimeWrapper init_order(101) s_initTime { GetInitTimeImpl() };
 std::atomic<int> init_order(102) RpInitDone( 0 );
 std::atomic<int> init_order(102) RpInitLock( 0 );
 thread_local bool RpThreadInitDone = false;
 thread_local bool RpThreadShutdown = false;
 moodycamel::ConcurrentQueue<QueueItem> init_order(103) s_queue( QueuePrealloc );
+
+#  ifndef _MSC_VER
+// An instrumented shared object may emit zones from its static initializers, which the
+// dynamic loader runs before any of the executable's constructors, including the
+// priority-ordered constructor of s_queue above. The main thread producer token (s_token)
+// is then lazily created against the zero-initialized queue memory, and the queue
+// constructor subsequently orphans it, making all zones emitted on the main thread
+// invisible to the consumer. Re-adopt such a producer here. If no zones were emitted up
+// to this point, this only triggers construction of s_token, which is a no-op repair.
+struct EarlyMainThreadTokenRepair
+{
+    EarlyMainThreadTokenRepair() { if( s_token.ptr ) s_queue.readopt_orphaned_producer( s_token.ptr ); }
+};
+static EarlyMainThreadTokenRepair init_order(104) s_earlyMainThreadTokenRepair;
+#  endif
+
 std::atomic<uint32_t> init_order(104) s_lockCounter( 0 );
 std::atomic<uint8_t> init_order(104) s_gpuCtxCounter( 0 );
 
@@ -1476,6 +1521,7 @@ Profiler::Profiler()
     , m_noExit( false )
     , m_userPort( 0 )
     , m_zoneId( 1 )
+    , m_sectionId( 1 )
     , m_samplingPeriod( 0 )
     , m_stream( LZ4_createStream() )
     , m_buffer( (char*)tracy_malloc( TargetFrameSize*3 ) )
@@ -2290,12 +2336,12 @@ void Profiler::CompressWorker()
                 const auto w = fi->w;
                 const auto h = fi->h;
                 const auto csz = size_t( w * h / 2 );
-                auto etc1buf = (char*)tracy_malloc( csz );
-                CompressImageDxt1( (const char*)fi->image, etc1buf, w, h );
+                auto texbuf = (char*)tracy_malloc( csz );
+                CompressImageDxt1( (const char*)fi->image, texbuf, w, h );
                 tracy_free( fi->image );
 
                 TracyLfqPrepare( QueueType::FrameImage );
-                MemWrite( &item->frameImageFat.image, (uint64_t)etc1buf );
+                MemWrite( &item->frameImageFat.image, (uint64_t)texbuf );
                 MemWrite( &item->frameImageFat.frame, fi->frame );
                 MemWrite( &item->frameImageFat.w, w );
                 MemWrite( &item->frameImageFat.h, h );
@@ -2437,6 +2483,10 @@ static void FreeAssociatedMemory( const QueueItem& item )
 #endif
     case QueueType::SourceCodeMetadata:
         ptr = MemRead( &item.sourceCodeMetadata.ptr );
+        tracy_free( (void*)ptr );
+        break;
+    case QueueType::SectionEnter:
+        ptr = MemRead( &item.sectionEnterFat.text );
         tracy_free( (void*)ptr );
         break;
     default:
@@ -2817,6 +2867,26 @@ Profiler::DequeueStatus Profiler::Dequeue( moodycamel::ConsumerToken& token )
                         tracy_free_fast( (void*)ptr );
                         ++item;
                         continue;
+                    }
+                    case QueueType::SectionEnter:
+                    {
+                        int64_t t = MemRead( &item->sectionEnter.time );
+                        int64_t dt = t - refThread;
+                        refThread = t;
+                        MemWrite( &item->sectionEnter.time, dt );
+                        ptr = MemRead( &item->sectionEnterFat.text );
+                        size = MemRead( &item->sectionEnterFat.size );
+                        SendSingleString( (const char*)ptr, size );
+                        tracy_free_fast( (void*)ptr );
+                        break;
+                    }
+                    case QueueType::SectionLeave:
+                    {
+                        int64_t t = MemRead( &item->sectionLeave.time );
+                        int64_t dt = t - refThread;
+                        refThread = t;
+                        MemWrite( &item->sectionLeave.time, dt );
+                        break;
                     }
                     default:
                         assert( false );
@@ -3409,34 +3479,68 @@ void Profiler::SendString( uint64_t str, const char* ptr, size_t len, QueueType 
     AppendDataUnsafe( ptr, l16 );
 }
 
-void Profiler::SendSingleString( const char* ptr, size_t len )
+void Profiler::SendSingleString8( const char* ptr, size_t len )
+{
+    QueueItem item;
+    MemWrite( &item.hdr.type, QueueType::SingleStringData8 );
+
+    assert( len <= std::numeric_limits<uint8_t>::max() );
+    auto l8 = uint8_t( len );
+
+    NeedDataSize( QueueDataSize[(int)QueueType::SingleStringData8] + sizeof( l8 ) + len );
+
+    AppendDataUnsafe( &item, QueueDataSize[(int)QueueType::SingleStringData8] );
+    AppendDataUnsafe( &l8, sizeof( l8 ) );
+    AppendDataUnsafe( ptr, len );
+}
+
+void Profiler::SendSingleString16( const char* ptr, size_t len )
 {
     QueueItem item;
     MemWrite( &item.hdr.type, QueueType::SingleStringData );
 
+    // Ignoring u16+ range by design
+    assert( len > std::numeric_limits<uint8_t>::max() );
     assert( len <= std::numeric_limits<uint16_t>::max() );
-    auto l16 = uint16_t( len );
+    auto l16 = uint16_t( len - ProtocolOffset8Bit );
 
-    NeedDataSize( QueueDataSize[(int)QueueType::SingleStringData] + sizeof( l16 ) + l16 );
+    NeedDataSize( QueueDataSize[(int)QueueType::SingleStringData] + sizeof( l16 ) + len );
 
     AppendDataUnsafe( &item, QueueDataSize[(int)QueueType::SingleStringData] );
     AppendDataUnsafe( &l16, sizeof( l16 ) );
-    AppendDataUnsafe( ptr, l16 );
+    AppendDataUnsafe( ptr, len );
 }
 
-void Profiler::SendSecondString( const char* ptr, size_t len )
+void Profiler::SendSecondString8( const char* ptr, size_t len )
+{
+    QueueItem item;
+    MemWrite( &item.hdr.type, QueueType::SecondStringData8 );
+
+    assert( len <= std::numeric_limits<uint8_t>::max() );
+    auto l8 = uint8_t( len );
+
+    NeedDataSize( QueueDataSize[(int)QueueType::SecondStringData8] + sizeof( l8 ) + len );
+
+    AppendDataUnsafe( &item, QueueDataSize[(int)QueueType::SecondStringData8] );
+    AppendDataUnsafe( &l8, sizeof( l8 ) );
+    AppendDataUnsafe( ptr, len );
+}
+
+void Profiler::SendSecondString16( const char* ptr, size_t len )
 {
     QueueItem item;
     MemWrite( &item.hdr.type, QueueType::SecondStringData );
 
+    // Ignoring u16+ range by design
+    assert( len > std::numeric_limits<uint8_t>::max() );
     assert( len <= std::numeric_limits<uint16_t>::max() );
-    auto l16 = uint16_t( len );
+    auto l16 = uint16_t( len - ProtocolOffset8Bit );
 
-    NeedDataSize( QueueDataSize[(int)QueueType::SecondStringData] + sizeof( l16 ) + l16 );
+    NeedDataSize( QueueDataSize[(int)QueueType::SecondStringData] + sizeof( l16 ) + len );
 
     AppendDataUnsafe( &item, QueueDataSize[(int)QueueType::SecondStringData] );
     AppendDataUnsafe( &l16, sizeof( l16 ) );
-    AppendDataUnsafe( ptr, l16 );
+    AppendDataUnsafe( ptr, len );
 }
 
 void Profiler::SendLongString( uint64_t str, const char* ptr, size_t len, QueueType type )
@@ -4664,64 +4768,64 @@ TRACY_API void ___tracy_emit_zone_value( TracyCZoneCtx ctx, uint64_t value )
     }
 }
 
-TRACY_API void ___tracy_emit_memory_alloc( const void* ptr, size_t size, int32_t secure ) { tracy::Profiler::MemAlloc( ptr, size, secure != 0 ); }
-TRACY_API void ___tracy_emit_memory_alloc_callstack( const void* ptr, size_t size, int32_t depth, int32_t secure )
+TRACY_API void ___tracy_emit_memory_alloc( const void* ptr, size_t size ) { tracy::Profiler::MemAlloc( ptr, size ); }
+TRACY_API void ___tracy_emit_memory_alloc_callstack( const void* ptr, size_t size, int32_t depth )
 {
     if( depth > 0 && tracy::has_callstack() )
     {
-        tracy::Profiler::MemAllocCallstack( ptr, size, depth, secure != 0 );
+        tracy::Profiler::MemAllocCallstack( ptr, size, depth );
     }
     else
     {
-        tracy::Profiler::MemAlloc( ptr, size, secure != 0 );
+        tracy::Profiler::MemAlloc( ptr, size );
     }
 }
-TRACY_API void ___tracy_emit_memory_free( const void* ptr, int32_t secure ) { tracy::Profiler::MemFree( ptr, secure != 0 ); }
-TRACY_API void ___tracy_emit_memory_free_callstack( const void* ptr, int32_t depth, int32_t secure )
+TRACY_API void ___tracy_emit_memory_free( const void* ptr ) { tracy::Profiler::MemFree( ptr ); }
+TRACY_API void ___tracy_emit_memory_free_callstack( const void* ptr, int32_t depth )
 {
     if( depth > 0 && tracy::has_callstack() )
     {
-        tracy::Profiler::MemFreeCallstack( ptr, depth, secure != 0 );
+        tracy::Profiler::MemFreeCallstack( ptr, depth );
     }
     else
     {
-        tracy::Profiler::MemFree( ptr, secure != 0 );
+        tracy::Profiler::MemFree( ptr );
     }
 }
-TRACY_API void ___tracy_emit_memory_discard( const char* name, int32_t secure ) { tracy::Profiler::MemDiscard( name, secure != 0 ); }
-TRACY_API void ___tracy_emit_memory_discard_callstack( const char* name, int32_t secure, int32_t depth )
+TRACY_API void ___tracy_emit_memory_discard( const char* name ) { tracy::Profiler::MemDiscard( name ); }
+TRACY_API void ___tracy_emit_memory_discard_callstack( const char* name, int32_t depth )
 {
     if( depth > 0 && tracy::has_callstack() )
     {
-        tracy::Profiler::MemDiscardCallstack( name, secure != 0, depth );
+        tracy::Profiler::MemDiscardCallstack( name, depth );
     }
     else
     {
-        tracy::Profiler::MemDiscard( name, secure != 0 );
+        tracy::Profiler::MemDiscard( name );
     }
 }
-TRACY_API void ___tracy_emit_memory_alloc_named( const void* ptr, size_t size, int32_t secure, const char* name ) { tracy::Profiler::MemAllocNamed( ptr, size, secure != 0, name ); }
-TRACY_API void ___tracy_emit_memory_alloc_callstack_named( const void* ptr, size_t size, int32_t depth, int32_t secure, const char* name )
+TRACY_API void ___tracy_emit_memory_alloc_named( const void* ptr, size_t size, const char* name ) { tracy::Profiler::MemAllocNamed( ptr, size, name ); }
+TRACY_API void ___tracy_emit_memory_alloc_callstack_named( const void* ptr, size_t size, int32_t depth, const char* name )
 {
     if( depth > 0 && tracy::has_callstack() )
     {
-        tracy::Profiler::MemAllocCallstackNamed( ptr, size, depth, secure != 0, name );
+        tracy::Profiler::MemAllocCallstackNamed( ptr, size, depth, name );
     }
     else
     {
-        tracy::Profiler::MemAllocNamed( ptr, size, secure != 0, name );
+        tracy::Profiler::MemAllocNamed( ptr, size, name );
     }
 }
-TRACY_API void ___tracy_emit_memory_free_named( const void* ptr, int32_t secure, const char* name ) { tracy::Profiler::MemFreeNamed( ptr, secure != 0, name ); }
-TRACY_API void ___tracy_emit_memory_free_callstack_named( const void* ptr, int32_t depth, int32_t secure, const char* name )
+TRACY_API void ___tracy_emit_memory_free_named( const void* ptr, const char* name ) { tracy::Profiler::MemFreeNamed( ptr, name ); }
+TRACY_API void ___tracy_emit_memory_free_callstack_named( const void* ptr, int32_t depth, const char* name )
 {
     if( depth > 0 && tracy::has_callstack() )
     {
-        tracy::Profiler::MemFreeCallstackNamed( ptr, depth, secure != 0, name );
+        tracy::Profiler::MemFreeCallstackNamed( ptr, depth, name );
     }
     else
     {
-        tracy::Profiler::MemFreeNamed( ptr, secure != 0, name );
+        tracy::Profiler::MemFreeNamed( ptr, name );
     }
 }
 TRACY_API void ___tracy_emit_frame_mark( const char* name ) { tracy::Profiler::SendFrameMark( name ); }
@@ -5165,6 +5269,164 @@ TRACY_API void ___tracy_custom_name_lockable_ctx( struct __tracy_lockable_contex
     tracy::GetProfiler().DeferItem( *item );
 #endif
     tracy::Profiler::QueueSerialFinish();
+}
+
+struct __tracy_shared_lockable_context_data {
+    struct __tracy_lockable_context_data m_base;
+};
+
+TRACY_API struct __tracy_shared_lockable_context_data* ___tracy_announce_shared_lockable_ctx( const struct ___tracy_source_location_data* srcloc )
+{
+    struct __tracy_shared_lockable_context_data *lockdata = (__tracy_shared_lockable_context_data*)tracy::tracy_malloc( sizeof( __tracy_shared_lockable_context_data ) );
+    lockdata->m_base.m_id = tracy::GetLockCounter().fetch_add( 1, std::memory_order_relaxed );
+#ifdef TRACY_ON_DEMAND
+    new(&lockdata->m_base.m_lockCount) std::atomic<uint32_t>( 0 );
+    new(&lockdata->m_base.m_active) std::atomic<bool>( false );
+#endif
+    assert( lockdata->m_base.m_id != (std::numeric_limits<uint32_t>::max)() );
+
+    auto item = tracy::Profiler::QueueSerial();
+    tracy::MemWrite( &item->hdr.type, tracy::QueueType::LockAnnounce );
+    tracy::MemWrite( &item->lockAnnounce.id, lockdata->m_base.m_id );
+    tracy::MemWrite( &item->lockAnnounce.time, tracy::Profiler::GetTime() );
+    tracy::MemWrite( &item->lockAnnounce.lckloc, (uint64_t)srcloc );
+    tracy::MemWrite( &item->lockAnnounce.type, tracy::LockType::SharedLockable );
+#ifdef TRACY_ON_DEMAND
+    tracy::GetProfiler().DeferItem( *item );
+#endif
+    tracy::Profiler::QueueSerialFinish();
+
+    return lockdata;
+}
+
+TRACY_API void ___tracy_terminate_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata )
+{
+    auto item = tracy::Profiler::QueueSerial();
+    tracy::MemWrite( &item->hdr.type, tracy::QueueType::LockTerminate );
+    tracy::MemWrite( &item->lockTerminate.id, lockdata->m_base.m_id );
+    tracy::MemWrite( &item->lockTerminate.time, tracy::Profiler::GetTime() );
+#ifdef TRACY_ON_DEMAND
+    tracy::GetProfiler().DeferItem( *item );
+#endif
+    tracy::Profiler::QueueSerialFinish();
+
+#ifdef TRACY_ON_DEMAND
+    lockdata->m_base.m_lockCount.~atomic();
+    lockdata->m_base.m_active.~atomic();
+#endif
+    tracy::tracy_free((void*)lockdata);
+}
+
+TRACY_API int32_t ___tracy_before_lock_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata )
+{
+    return ___tracy_before_lock_lockable_ctx( &lockdata->m_base );
+}
+
+TRACY_API void ___tracy_after_lock_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata )
+{
+    ___tracy_after_lock_lockable_ctx( &lockdata->m_base );
+}
+
+TRACY_API void ___tracy_after_unlock_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata )
+{
+    ___tracy_after_unlock_lockable_ctx( &lockdata->m_base );
+}
+
+TRACY_API void ___tracy_after_try_lock_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata, int32_t acquired )
+{
+    ___tracy_after_try_lock_lockable_ctx( &lockdata->m_base, acquired );
+}
+
+TRACY_API int32_t ___tracy_before_lock_shared_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata )
+{
+#ifdef TRACY_ON_DEMAND
+    bool queue = false;
+    const auto locks = lockdata->m_base.m_lockCount.fetch_add( 1, std::memory_order_relaxed );
+    const auto active = lockdata->m_base.m_active.load( std::memory_order_relaxed );
+    if( locks == 0 || active )
+    {
+        const bool connected = tracy::GetProfiler().IsConnected();
+        if( active != connected ) lockdata->m_base.m_active.store( connected, std::memory_order_relaxed );
+        if( connected ) queue = true;
+    }
+    if( !queue ) return static_cast<int32_t>(false);
+#endif
+
+    auto item = tracy::Profiler::QueueSerial();
+    tracy::MemWrite( &item->hdr.type, tracy::QueueType::LockSharedWait );
+    tracy::MemWrite( &item->lockWait.thread, tracy::GetThreadHandle() );
+    tracy::MemWrite( &item->lockWait.id, lockdata->m_base.m_id );
+    tracy::MemWrite( &item->lockWait.time, tracy::Profiler::GetTime() );
+    tracy::Profiler::QueueSerialFinish();
+    return static_cast<int32_t>(true);
+}
+
+TRACY_API void ___tracy_after_lock_shared_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata )
+{
+    auto item = tracy::Profiler::QueueSerial();
+    tracy::MemWrite( &item->hdr.type, tracy::QueueType::LockSharedObtain );
+    tracy::MemWrite( &item->lockObtain.thread, tracy::GetThreadHandle() );
+    tracy::MemWrite( &item->lockObtain.id, lockdata->m_base.m_id );
+    tracy::MemWrite( &item->lockObtain.time, tracy::Profiler::GetTime() );
+    tracy::Profiler::QueueSerialFinish();
+}
+
+TRACY_API void ___tracy_after_unlock_shared_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata )
+{
+#ifdef TRACY_ON_DEMAND
+    lockdata->m_base.m_lockCount.fetch_sub( 1, std::memory_order_relaxed );
+    if( !lockdata->m_base.m_active.load( std::memory_order_relaxed ) ) return;
+    if( !tracy::GetProfiler().IsConnected() )
+    {
+        lockdata->m_base.m_active.store( false, std::memory_order_relaxed );
+        return;
+    }
+#endif
+
+    auto item = tracy::Profiler::QueueSerial();
+    tracy::MemWrite( &item->hdr.type, tracy::QueueType::LockSharedRelease );
+    tracy::MemWrite( &item->lockReleaseShared.thread, tracy::GetThreadHandle() );
+    tracy::MemWrite( &item->lockReleaseShared.id, lockdata->m_base.m_id );
+    tracy::MemWrite( &item->lockReleaseShared.time, tracy::Profiler::GetTime() );
+    tracy::Profiler::QueueSerialFinish();
+}
+
+TRACY_API void ___tracy_after_try_lock_shared_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata, int32_t acquired )
+{
+#ifdef TRACY_ON_DEMAND
+    if( !acquired ) return;
+
+    bool queue = false;
+    const auto locks = lockdata->m_base.m_lockCount.fetch_add( 1, std::memory_order_relaxed );
+    const auto active = lockdata->m_base.m_active.load( std::memory_order_relaxed );
+    if( locks == 0 || active )
+    {
+        const bool connected = tracy::GetProfiler().IsConnected();
+        if( active != connected ) lockdata->m_base.m_active.store( connected, std::memory_order_relaxed );
+        if( connected ) queue = true;
+    }
+    if( !queue ) return;
+#endif
+
+    if( acquired )
+    {
+        auto item = tracy::Profiler::QueueSerial();
+        tracy::MemWrite( &item->hdr.type, tracy::QueueType::LockObtain );
+        tracy::MemWrite( &item->lockObtain.thread, tracy::GetThreadHandle() );
+        tracy::MemWrite( &item->lockObtain.id, lockdata->m_base.m_id );
+        tracy::MemWrite( &item->lockObtain.time, tracy::Profiler::GetTime() );
+        tracy::Profiler::QueueSerialFinish();
+    }
+}
+
+TRACY_API void ___tracy_mark_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata, const struct ___tracy_source_location_data* srcloc )
+{
+    ___tracy_mark_lockable_ctx( &lockdata->m_base, srcloc );
+}
+
+TRACY_API void ___tracy_custom_name_shared_lockable_ctx( struct __tracy_shared_lockable_context_data* lockdata, const char* name, size_t nameSz )
+{
+    ___tracy_custom_name_lockable_ctx( &lockdata->m_base, name, nameSz );
 }
 
 TRACY_API int32_t ___tracy_connected( void )
