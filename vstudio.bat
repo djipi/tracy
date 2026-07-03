@@ -1,4 +1,4 @@
-@cd vs2022
+@cd _build\vstudio
 
 @mkdir tracy-capture
 @cd tracy-capture
@@ -10,7 +10,7 @@
 @mkdir TracyClient
 @cd TracyClient
 @del /Q *.*
-@cmake  -DCMAKE_INSTALL_PREFIX="C:/SDK/tracy" ..\..\..
+@cmake -DCMAKE_INSTALL_PREFIX="C:/SDK/tracy" ..\..\..
 @cmake --build . --clean-first --config Release
 @cmake --build . --clean-first --config Debug
 @cmake --install . --config Release
@@ -33,8 +33,9 @@
 @mkdir tracy-profiler
 @cd tracy-profiler
 @del /Q *.*
-@cmake ..\..\..\profiler
+@cmake -DCMAKE_INSTALL_PREFIX="C:/SDK/tracy" ..\..\..\profiler
 @cmake --build . --clean-first --config Release
+@cmake --install . --config Release
 @cd ..
 
 @mkdir tracy-update
@@ -44,4 +45,4 @@
 @cmake --build . --clean-first --config Release
 @cd ..
 
-@cd ..
+@cd ..\..
