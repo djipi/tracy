@@ -34,12 +34,12 @@ using TracyD3D12Ctx = void*;
 
 #include "Tracy.hpp"
 #include "../client/TracyFastVector.hpp"
+#include "../common/TracyAssert.hpp"
 
 #include <atomic>
 #include <mutex>
 #include <cstdlib>
 #include <cstring>
-#include <cassert>
 #include <d3d12.h>
 #include <dxgi.h>
 
@@ -52,21 +52,21 @@ using TracyD3D12Ctx = void*;
 #endif//TRACY_D3D12_PERSISTENT_TIMESTAMP_BUFFER
 
 #if TRACY_D3D12_DEBUG_LEVEL
-#   define TracyD3D12Debug(...) __VA_ARGS__;
+#   define TracyD3D12Debug(...) __VA_ARGS__
 #   ifdef _MSC_VER
-#       define TracyD3D12Break() if (IsDebuggerPresent()) __debugbreak()
+#       define TracyD3D12Break() do { if (IsDebuggerPresent()) __debugbreak(); } while(false)
 #   else
 #       define TracyD3D12Break() /* TODO */
 #   endif
-#   define TracyD3D12Assert(predicate, ...) if (predicate) {} else { __VA_ARGS__; TracyD3D12Break(); }
+#   define TracyD3D12Assert(predicate, ...) do { if (predicate) {} else { __VA_ARGS__; TracyD3D12Break(); } } while(false)
 #else
 #   define TracyD3D12Debug(...)
 #   define TracyD3D12Break()
-#   define TracyD3D12Assert(predicate, ...) assert(predicate);
+#   define TracyD3D12Assert(predicate, ...) TRACY_ASSERT(predicate)
 #endif
 
-#define TracyD3D12Log(severity, msg) tracy::Profiler::LogString( tracy::MessageSourceType::Tracy, tracy::MessageSeverity::severity, tracy::Color::Red4, 0, msg );
-#define TracyD3D12Panic(msg, ...) do { TracyD3D12Log(Error, msg); TracyD3D12Assert(false && "TracyD3D12: " msg); __VA_ARGS__; } while(false);
+#define TracyD3D12Log(severity, msg) tracy::Profiler::LogString( tracy::MessageSourceType::Tracy, tracy::MessageSeverity::severity, tracy::Color::Red4, 0, msg )
+#define TracyD3D12Panic(msg, ...) do { TracyD3D12Log(Error, msg); TracyD3D12Assert(false && "TracyD3D12: " msg); __VA_ARGS__; } while(false)
 
 namespace tracy
 {
@@ -76,7 +76,7 @@ namespace tracy
     {
         friend class D3D12ZoneScope;
 
-        uint8_t m_contextId = 255;  // 255 represents "invalid id"
+        int32_t m_contextId = InvalidGpuContextId;
 
         std::mutex m_collectionMutex;
 
@@ -128,7 +128,7 @@ namespace tracy
                 MemWrite(&item->gpuCalibration.gpuTime, int64_t(gpuTimestamp));
                 MemWrite(&item->gpuCalibration.cpuTime, int64_t(cpuTimestamp));
                 MemWrite(&item->gpuCalibration.cpuDelta, cpuDeltaNS);
-                MemWrite(&item->gpuCalibration.context, GetId());
+                MemWrite(&item->gpuCalibration.context, static_cast<uint8_t>(GetId()));
                 SubmitQueueItem(item);
             }
         }
@@ -239,7 +239,7 @@ namespace tracy
             cpuTimestamp = Profiler::GetTime();
 
             // All setup/init checks completed: ready to create the context.
-            m_contextId = GetGpuCtxCounter().fetch_add(1);
+            m_contextId = NextGpuContextId();
             ZoneValue(m_contextId);
 
             auto* item = Profiler::QueueSerial();
@@ -278,8 +278,8 @@ namespace tracy
 #if TRACY_D3D12_PERSISTENT_TIMESTAMP_BUFFER
             if (m_readbackBuffer)
             {
-                D3D12_RANGE fullRange { 0, m_queryLimit * sizeof(UINT64) };
-                m_readbackBuffer->Unmap(0, &fullRange);
+                D3D12_RANGE emptyWrittenRange { 0, 0 };
+                m_readbackBuffer->Unmap(0, &emptyWrittenRange);
                 m_persistentTimestampBuffer = nullptr;
             }
 #endif
@@ -288,7 +288,7 @@ namespace tracy
             m_queue->Release();
         }
 
-        tracy_force_inline uint8_t GetId() const
+        tracy_force_inline int32_t GetId() const
         {
             return m_contextId;
         }
@@ -300,7 +300,7 @@ namespace tracy
 
             auto item = Profiler::QueueSerial();
             MemWrite( &item->hdr.type, QueueType::GpuContextName );
-            MemWrite( &item->gpuContextNameFat.context, GetId());
+            MemWrite( &item->gpuContextNameFat.context, static_cast<uint8_t>(GetId()));
             MemWrite( &item->gpuContextNameFat.ptr, (uint64_t)ptr );
             MemWrite( &item->gpuContextNameFat.size, len );
             SubmitQueueItem(item);
@@ -458,7 +458,7 @@ namespace tracy
             MemWrite(&item->hdr.type, QueueType::GpuTime);
             MemWrite(&item->gpuTime.gpuTime, static_cast<int64_t>(gpuTimestamp));
             MemWrite(&item->gpuTime.queryId, static_cast<uint16_t>(queryId));
-            MemWrite(&item->gpuTime.context, GetId());
+            MemWrite(&item->gpuTime.context, static_cast<uint8_t>(GetId()));
             Profiler::QueueSerialFinish();
             m_shadowBuffer[queryId] = gpuTimestamp;
             TracyD3D12Debug(
@@ -543,8 +543,8 @@ namespace tracy
         void UnmapTimestampBuffer(UINT64*)
         {
 #if !TRACY_D3D12_PERSISTENT_TIMESTAMP_BUFFER
-            D3D12_RANGE fullRange { 0, m_queryLimit * sizeof(UINT64) };
-            m_readbackBuffer->Unmap(0, &fullRange);
+            D3D12_RANGE emptyWrittenRange { 0, 0 };
+            m_readbackBuffer->Unmap(0, &emptyWrittenRange);
 #endif
         }
 
@@ -558,6 +558,9 @@ namespace tracy
     class D3D12ZoneScope
     {
         const bool m_active;
+#ifdef TRACY_ON_DEMAND
+        uint64_t m_connectionId = 0;
+#endif
         D3D12QueueCtx* m_ctx = nullptr;
         ID3D12GraphicsCommandList* m_cmdList = nullptr;
         uint32_t m_queryId = 0;
@@ -605,13 +608,14 @@ namespace tracy
             MemWrite( &item->gpuZoneBegin.srcloc, srcLocationAddr );
             MemWrite( &item->gpuZoneBegin.thread, GetThreadHandle() );
             MemWrite( &item->gpuZoneBegin.queryId, static_cast<uint16_t>( m_queryId ) );
-            MemWrite( &item->gpuZoneBegin.context, m_ctx->GetId() );
+            MemWrite( &item->gpuZoneBegin.context, static_cast<uint8_t>(m_ctx->GetId()) );
             Profiler::QueueSerialFinish();
         }
 
         tracy_force_inline D3D12ZoneScope(D3D12QueueCtx* ctx, ID3D12GraphicsCommandList* cmdList, bool active)
 #ifdef TRACY_ON_DEMAND
             : m_active(active&& GetProfiler().IsConnected())
+            , m_connectionId(GetProfiler().ConnectionId())
 #else
             : m_active(active)
 #endif
@@ -656,13 +660,20 @@ namespace tracy
 
             const auto queryId = m_queryId + 1;  // Our end query slot is immediately after the begin slot.
 
-            auto* item = Profiler::QueueSerial();
-            MemWrite(&item->hdr.type, QueueType::GpuZoneEndSerial);
-            MemWrite(&item->gpuZoneEnd.cpuTime, Profiler::GetTime());
-            MemWrite(&item->gpuZoneEnd.thread, GetThreadHandle());
-            MemWrite(&item->gpuZoneEnd.queryId, static_cast<uint16_t>(queryId));
-            MemWrite(&item->gpuZoneEnd.context, m_ctx->GetId());
-            Profiler::QueueSerialFinish();
+#ifdef TRACY_ON_DEMAND
+            if (GetProfiler().ConnectionId() == m_connectionId)
+            {
+#endif
+                auto* item = Profiler::QueueSerial();
+                MemWrite(&item->hdr.type, QueueType::GpuZoneEndSerial);
+                MemWrite(&item->gpuZoneEnd.cpuTime, Profiler::GetTime());
+                MemWrite(&item->gpuZoneEnd.thread, GetThreadHandle());
+                MemWrite(&item->gpuZoneEnd.queryId, static_cast<uint16_t>(queryId));
+                MemWrite( &item->gpuZoneEnd.context, static_cast<uint8_t>(m_ctx->GetId()) );
+                Profiler::QueueSerialFinish();
+#ifdef TRACY_ON_DEMAND
+            }
+#endif
 
             m_cmdList->EndQuery(m_ctx->m_queryHeap, D3D12_QUERY_TYPE_TIMESTAMP, queryId);
             // NOTE: can't quite move this ResolveQueryData() call to Collect()...
@@ -684,12 +695,6 @@ namespace tracy
     {
         auto* ctx = static_cast<D3D12QueueCtx*>(tracy_malloc(sizeof(D3D12QueueCtx)));
         new (ctx) D3D12QueueCtx{ device, queue };
-        // constructor may have failed:
-        if (ctx->GetId() == 255)
-        {
-            DestroyD3D12Context(ctx);
-            return nullptr;
-        }
         return ctx;
     }
 
@@ -705,36 +710,36 @@ namespace tracy
 
 using TracyD3D12Ctx = tracy::D3D12QueueCtx*;
 
-#define TracyD3D12Context(device, queue) tracy::CreateD3D12Context(device, queue);
-#define TracyD3D12Destroy(ctx) tracy::DestroyD3D12Context(ctx);
-#define TracyD3D12ContextName(ctx, name, size) ctx->Name(name, size);
+#define TracyD3D12Context(device, queue) tracy::CreateD3D12Context(device, queue)
+#define TracyD3D12Destroy(ctx) tracy::DestroyD3D12Context(ctx)
+#define TracyD3D12ContextName(ctx, name, size) ctx->Name(name, size)
 
 #define TracyD3D12NewFrame(ctx) ((void)(ctx))
 
 #define TracyD3D12UnnamedZone ___tracy_gpu_d3d12_zone
 #define TracyD3D12SrcLocSymbol TracyConcat(__tracy_d3d12_source_location,TracyLine)
-#define TracyD3D12SrcLocObject(name, color) static constexpr tracy::SourceLocationData TracyD3D12SrcLocSymbol { name, TracyFunction, TracyFile, (uint32_t)TracyLine, color };
+#define TracyD3D12SrcLocObject(name, color) static constexpr tracy::SourceLocationData TracyD3D12SrcLocSymbol { name, TracyFunction, TracyFile, (uint32_t)TracyLine, color }
 
 #if defined TRACY_HAS_CALLSTACK && defined TRACY_CALLSTACK
 #  define TracyD3D12Zone(ctx, cmdList, name) TracyD3D12NamedZoneS(ctx, TracyD3D12UnnamedZone, cmdList, name, TRACY_CALLSTACK, true)
 #  define TracyD3D12ZoneC(ctx, cmdList, name, color) TracyD3D12NamedZoneCS(ctx, TracyD3D12UnnamedZone, cmdList, name, color, TRACY_CALLSTACK, true)
-#  define TracyD3D12NamedZone(ctx, varname, cmdList, name, active) TracyD3D12SrcLocObject(name, 0); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, TRACY_CALLSTACK, active };
-#  define TracyD3D12NamedZoneC(ctx, varname, cmdList, name, color, active) TracyD3D12SrcLocObject(name, color); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, TRACY_CALLSTACK, active };
+#  define TracyD3D12NamedZone(ctx, varname, cmdList, name, active) TracyD3D12SrcLocObject(name, 0); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, TRACY_CALLSTACK, active }
+#  define TracyD3D12NamedZoneC(ctx, varname, cmdList, name, color, active) TracyD3D12SrcLocObject(name, color); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, TRACY_CALLSTACK, active }
 #  define TracyD3D12ZoneTransient(ctx, varname, cmdList, name, active) TracyD3D12ZoneTransientS(ctx, varname, cmdList, name, TRACY_CALLSTACK, active)
 #else
 #  define TracyD3D12Zone(ctx, cmdList, name) TracyD3D12NamedZone(ctx, TracyD3D12UnnamedZone, cmdList, name, true)
 #  define TracyD3D12ZoneC(ctx, cmdList, name, color) TracyD3D12NamedZoneC(ctx, TracyD3D12UnnamedZone, cmdList, name, color, true)
-#  define TracyD3D12NamedZone(ctx, varname, cmdList, name, active) TracyD3D12SrcLocObject(name, 0); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, active };
-#  define TracyD3D12NamedZoneC(ctx, varname, cmdList, name, color, active) TracyD3D12SrcLocObject(name, color); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, active };
-#  define TracyD3D12ZoneTransient(ctx, varname, cmdList, name, active) tracy::D3D12ZoneScope varname{ ctx, TracyLine, TracyFile, strlen(TracyFile), TracyFunction, strlen(TracyFunction), name, strlen(name), cmdList, active };
+#  define TracyD3D12NamedZone(ctx, varname, cmdList, name, active) TracyD3D12SrcLocObject(name, 0); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, active }
+#  define TracyD3D12NamedZoneC(ctx, varname, cmdList, name, color, active) TracyD3D12SrcLocObject(name, color); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, active }
+#  define TracyD3D12ZoneTransient(ctx, varname, cmdList, name, active) tracy::D3D12ZoneScope varname{ ctx, TracyLine, TracyFile, strlen(TracyFile), TracyFunction, strlen(TracyFunction), name, strlen(name), cmdList, active }
 #endif
 
 #ifdef TRACY_HAS_CALLSTACK
 #  define TracyD3D12ZoneS(ctx, cmdList, name, depth) TracyD3D12NamedZoneS(ctx, TracyD3D12UnnamedZone, cmdList, name, depth, true)
 #  define TracyD3D12ZoneCS(ctx, cmdList, name, color, depth) TracyD3D12NamedZoneCS(ctx, TracyD3D12UnnamedZone, cmdList, name, color, depth, true)
-#  define TracyD3D12NamedZoneS(ctx, varname, cmdList, name, depth, active) TracyD3D12SrcLocObject(name, 0); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, depth, active };
-#  define TracyD3D12NamedZoneCS(ctx, varname, cmdList, name, color, depth, active) TracyD3D12SrcLocObject(name, color); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, depth, active };
-#  define TracyD3D12ZoneTransientS(ctx, varname, cmdList, name, depth, active) tracy::D3D12ZoneScope varname{ ctx, TracyLine, TracyFile, strlen(TracyFile), TracyFunction, strlen(TracyFunction), name, strlen(name), cmdList, depth, active };
+#  define TracyD3D12NamedZoneS(ctx, varname, cmdList, name, depth, active) TracyD3D12SrcLocObject(name, 0); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, depth, active }
+#  define TracyD3D12NamedZoneCS(ctx, varname, cmdList, name, color, depth, active) TracyD3D12SrcLocObject(name, color); tracy::D3D12ZoneScope varname{ ctx, cmdList, &TracyD3D12SrcLocSymbol, depth, active }
+#  define TracyD3D12ZoneTransientS(ctx, varname, cmdList, name, depth, active) tracy::D3D12ZoneScope varname{ ctx, TracyLine, TracyFile, strlen(TracyFile), TracyFunction, strlen(TracyFunction), name, strlen(name), cmdList, depth, active }
 #else
 #  define TracyD3D12ZoneS(ctx, cmdList, name, depth) TracyD3D12Zone(ctx, cmdList, name)
 #  define TracyD3D12ZoneCS(ctx, cmdList, name, color, depth) TracyD3D12Zone(ctx, cmdList, name, color)
@@ -743,7 +748,7 @@ using TracyD3D12Ctx = tracy::D3D12QueueCtx*;
 #  define TracyD3D12ZoneTransientS(ctx, varname, cmdList, name, depth, active) TracyD3D12ZoneTransient(ctx, varname, cmdList, name, active)
 #endif
 
-#define TracyD3D12Collect(ctx) ctx->Collect();
+#define TracyD3D12Collect(ctx) ctx->Collect()
 
 #endif
 

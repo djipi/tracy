@@ -577,29 +577,7 @@ int64_t View::GetZoneChildTime( const ZoneEvent& zone )
 
 int64_t View::GetZoneChildTime( const GpuEvent& zone )
 {
-    int64_t time = 0;
-    if( zone.Child() >= 0 )
-    {
-        auto& children = m_worker.GetGpuChildren( zone.Child() );
-        if( children.is_magic() )
-        {
-            auto& vec = *(Vector<GpuEvent>*)&children;
-            for( auto& v : vec )
-            {
-                const auto childSpan = std::max( int64_t( 0 ), v.GpuEnd() - v.GpuStart() );
-                time += childSpan;
-            }
-        }
-        else
-        {
-            for( auto& v : children )
-            {
-                const auto childSpan = std::max( int64_t( 0 ), v->GpuEnd() - v->GpuStart() );
-                time += childSpan;
-            }
-        }
-    }
-    return time;
+    return m_worker.GetGpuChildTime( zone );
 }
 
 int64_t View::GetZoneChildTimeFast( const ZoneEvent& zone )
@@ -918,6 +896,7 @@ void View::UpdateTitle()
         snprintf( buf, 1024, "%s (%s)", captureName, desc.c_str() );
         m_stcb( buf );
     }
+#ifndef __EMSCRIPTEN__
     else if( !m_filename.empty() )
     {
         auto fptr = m_filename.c_str() + m_filename.size() - 1;
@@ -928,6 +907,7 @@ void View::UpdateTitle()
         snprintf( buf, 1024, "%s (%s)", captureName, fptr );
         m_stcb( buf );
     }
+#endif
     else
     {
         m_stcb( captureName );
@@ -948,7 +928,7 @@ nlohmann::json View::GetCallstackJson( const CallstackFrameId* data, size_t size
     while( data < end )
     {
         auto& entry = *data++;
-        auto frameData = entry.custom ? m_worker.GetParentCallstackFrame( entry ) : m_worker.GetCallstackFrame( entry );
+        auto frameData = entry.custom ? m_worker.GetSyntheticCallstackFrame( entry ) : m_worker.GetCallstackFrame( entry );
         if( !frameData )
         {
             frames.push_back( { "pointer", m_worker.GetCanonicalPointer( entry ) } );
@@ -1039,9 +1019,23 @@ std::vector<CallstackFrameId> View::ReconstructZoneCallstack( const ZoneEvent& e
     auto end = std::lower_bound( it, td->samples.end(), m_worker.GetZoneEnd( ev ), [] ( const auto& l, const auto& r ) { return l.time.Val() < r; } );
     if( std::distance( it, end ) > SampleLimit ) end = it + SampleLimit;
 
+    // Context switch samples are excluded, as they are always parked at the scheduler
+    // and would compete with the zone's real call stacks.
+    const SampleData* cit = std::lower_bound( td->ctxSwitchSamples.begin(), td->ctxSwitchSamples.end(), ev.Start(), [] ( const auto& l, const auto& r ) { return l.time.Val() < r; } );
+
     unordered_flat_map<uint64_t, unordered_flat_set<uint32_t>> roots;
     while( it != end )
     {
+        if( cit != td->ctxSwitchSamples.end() )
+        {
+            const auto t = it->time.Val();
+            cit = std::lower_bound( cit, td->ctxSwitchSamples.end(), t, [] ( const auto& l, const auto& r ) { return l.time.Val() < r; } );
+            if( cit != td->ctxSwitchSamples.end() && cit->time.Val() == t )
+            {
+                ++it;
+                continue;
+            }
+        }
         auto stack = it->callstack.Val();
         auto& cs = m_worker.GetCallstack( stack );
         auto root = cs.back().data;

@@ -115,11 +115,14 @@
 #define TracyParameterRegister(x,y)
 #define TracyParameterSetup(x,y,z,w)
 #define TracyIsConnected false
+#define TracyPort 0
 #define TracyIsStarted false
 #define TracySetProgramName(x)
 
 #define TracySectionEnter(x, ...) 0
+#define TracySectionEnterCategory(x, y, ...) 0
 #define TracySectionLeave(x)
+#define TracySectionSetup(x, y, ...)
 
 #define TracyFiberEnter(x)
 #define TracyFiberEnterHint(x,y)
@@ -256,10 +259,13 @@
 #define TracyParameterRegister( cb, data ) tracy::Profiler::ParameterRegister( cb, data )
 #define TracyParameterSetup( idx, name, type, val ) tracy::Profiler::ParameterSetup( idx, name, type, val )
 #define TracyIsConnected tracy::GetProfiler().IsConnected()
+#define TracyPort tracy::GetProfiler().GetPort()
 #define TracySetProgramName( name ) tracy::GetProfiler().SetProgramName( name )
 
-#define TracySectionEnter( fmt, ... ) tracy::Profiler::SectionEnter( fmt, ##__VA_ARGS__ )
+#define TracySectionEnter( fmt, ... ) tracy::Profiler::SectionEnter( 0, fmt, ##__VA_ARGS__ )
+#define TracySectionEnterCategory( category, fmt, ... ) tracy::Profiler::SectionEnter( category, fmt, ##__VA_ARGS__ )
 #define TracySectionLeave( id ) tracy::Profiler::SectionLeave( id )
+#define TracySectionSetup( category, fmt, ... ) tracy::Profiler::SectionSetup( category, fmt, ##__VA_ARGS__ )
 
 #ifdef TRACY_FIBERS
 #  define TracyFiberEnter( fiber ) tracy::Profiler::EnterFiber( fiber, 0 )

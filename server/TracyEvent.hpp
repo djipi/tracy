@@ -66,7 +66,7 @@ class StringIdx
 {
 public:
     tracy_force_inline StringIdx() { memset( m_idx, 0, sizeof( m_idx ) ); }
-    tracy_force_inline StringIdx( uint32_t idx )
+    tracy_force_inline explicit StringIdx( uint32_t idx )
     {
         SetIdx( idx );
     }
@@ -97,6 +97,8 @@ public:
         uint32_t zero = 0;
         return memcmp( m_idx, &zero, 3 ) != 0;
     }
+
+    tracy_force_inline bool operator==( const StringIdx& rhs ) const { return memcmp( m_idx, rhs.m_idx, 3 ) == 0; }
 
 private:
     uint8_t m_idx[3];
@@ -302,81 +304,6 @@ struct HwSampleData
         if( !branchRetired.is_sorted() ) branchRetired.sort();
         if( !branchMiss.is_sorted() ) branchMiss.sort();
     }
-};
-
-
-struct LockEvent
-{
-    enum class Type : uint8_t
-    {
-        Wait,
-        Obtain,
-        Release,
-        WaitShared,
-        ObtainShared,
-        ReleaseShared
-    };
-
-    tracy_force_inline int64_t Time() const { return int64_t( _time_srcloc ) >> 16; }
-    tracy_force_inline void SetTime( int64_t time ) { assert( time < (int64_t)( 1ull << 47 ) ); memcpy( ((char*)&_time_srcloc)+2, &time, 4 ); memcpy( ((char*)&_time_srcloc)+6, ((char*)&time)+4, 2 ); }
-    tracy_force_inline int16_t SrcLoc() const { return int16_t( _time_srcloc & 0xFFFF ); }
-    tracy_force_inline void SetSrcLoc( int16_t srcloc ) { memcpy( &_time_srcloc, &srcloc, 2 ); }
-
-    uint64_t _time_srcloc;
-    uint8_t thread;
-    Type type;
-};
-
-struct LockEventShared : public LockEvent
-{
-    uint64_t waitShared;
-    uint64_t sharedList;
-};
-
-struct LockEventPtr
-{
-    short_ptr<LockEvent> ptr;
-    uint8_t lockingThread;
-    uint8_t lockCount;
-    uint64_t waitList;
-};
-
-constexpr size_t MaxLockThreads = sizeof( LockEventPtr::waitList ) * 8;
-static_assert( std::numeric_limits<decltype(LockEventPtr::lockCount)>::max() >= MaxLockThreads, "Not enough space for lock count." );
-
-
-enum class LockType : uint8_t;
-
-struct LockMap
-{
-    struct TimeRange
-    {
-        int64_t start = std::numeric_limits<int64_t>::max();
-        int64_t end = std::numeric_limits<int64_t>::min();
-    };
-
-    StringIdx customName;
-    int16_t srcloc;
-    Vector<LockEventPtr> timeline;
-    unordered_flat_map<uint64_t, uint8_t> threadMap;
-    std::vector<uint64_t> threadList;
-    LockType type;
-    int64_t timeAnnounce;
-    int64_t timeTerminate;
-    bool valid;
-    bool isContended;
-    uint64_t lockingThread;
-
-    TimeRange range[64];
-};
-
-struct LockHighlight
-{
-    int64_t id;
-    int64_t begin;
-    int64_t end;
-    uint8_t thread;
-    bool blocked;
 };
 
 
@@ -683,6 +610,8 @@ struct ChildSample
     uint64_t addr;
 };
 
+struct ChildSampleSort { bool operator()( const ChildSample& lhs, const ChildSample& rhs ) const { return lhs.time.Val() < rhs.time.Val(); }; };
+
 
 struct SectionItem
 {
@@ -710,9 +639,10 @@ struct ThreadData
 #endif
     Vector<SampleData> samples;
     SampleData pendingSample;
-    Vector<SampleData> ctxSwitchSamples;
+    SortedVector<SampleData, SampleDataSort> ctxSwitchSamples;
     uint64_t kernelSampleCnt;
     uint8_t isFiber;
+    uint8_t inLocks;      // has a thread slot in at least one lock map
     ThreadData* fiber;
     uint8_t* stackCount;
     int32_t groupHint;
@@ -875,8 +805,10 @@ struct Parameter
 struct SymbolStats
 {
     uint32_t incl, excl;
-    unordered_flat_map<uint32_t, uint32_t> parents;
-    unordered_flat_map<uint32_t, uint32_t> baseParents;
+    unordered_flat_map<uint32_t, uint32_t> wasExecuting;
+    unordered_flat_map<uint32_t, uint32_t> wasExecutingBase;
+    unordered_flat_map<uint32_t, uint32_t> wasReached;
+    unordered_flat_map<uint32_t, uint32_t> wasReachedNonReentrant;
 };
 
 

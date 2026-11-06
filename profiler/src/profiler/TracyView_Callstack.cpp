@@ -21,6 +21,7 @@ void View::DrawCallstackWindow()
     bool show = true;
     const auto scale = GetScale();
     ImGui::SetNextWindowSize( ImVec2( 1400 * scale, 500 * scale ), ImGuiCond_FirstUseEver );
+    m_callstackConstraint.Constrain();
     ImGui::Begin( "Call stack", &show, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse );
     if( !ImGui::GetCurrentWindowRead()->SkipItems )
     {
@@ -29,6 +30,7 @@ void View::DrawCallstackWindow()
             .wait = m_callstackView.wait,
             .entryStacks = true,
             .showThread = true,
+            .constraints = &m_callstackConstraint
         } );
     }
     ImGui::End();
@@ -47,6 +49,7 @@ void View::DrawCallstackTable( uint32_t callstack, const CallstackTableParams& p
         .showThread = params.showThread,
         .hasCrashed = crash.thread != 0 && crash.callstack == callstack,
         .callstack = callstack,
+        .constraints = params.constraints
     } );
 }
 
@@ -142,7 +145,7 @@ void View::DrawCallstackTable( const CallstackFrameId* data, size_t size, const 
                 json["thread_id"] = params.thread;
             }
             if( params.callstack >= 0 ) json["id"] = params.callstack;
-            if( params.wait.time != 0 )
+            if( params.wait.time > 0 )
             {
                 json["wait_time"] = TimeToString( params.wait.time );
                 if( params.wait.reasonCode ) json["wait_reason"] = params.wait.reasonCode;
@@ -233,7 +236,7 @@ void View::DrawCallstackTable( const CallstackFrameId* data, size_t size, const 
         ImGui::Spacing();
         ImGui::SameLine();
         TextColoredUnformatted( ImVec4( 0.6f, 0.6f, 1.f, 1.f ), ICON_FA_HOURGLASS_HALF " Wait stack" );
-        if( ImGui::IsItemHovered() )
+        if( params.wait.time > 0 && ImGui::IsItemHovered() )
         {
             ImGui::BeginTooltip();
             TextFocused( "Time:", TimeToString( params.wait.time ) );
@@ -259,7 +262,7 @@ void View::DrawCallstackTable( const CallstackFrameId* data, size_t size, const 
         if( frame && frame->data[0].symAddr != 0 )
         {
             auto sym = m_worker.GetSymbolStats( frame->data[0].symAddr );
-            if( sym && !sym->parents.empty() )
+            if( sym && !sym->wasReached.empty() )
             {
                 ImGui::SameLine();
                 ImGui::Spacing();
@@ -387,6 +390,7 @@ void View::DrawCallstackTable( const CallstackFrameId* data, size_t size, const 
             TextColoredUnformatted( ImVec4( 0.2f, 0.6f, 0.2f, 1.f ), "Fiber" );
         }
     }
+    if( params.constraints ) params.constraints->MarkMinWidth();
 
 #ifndef __EMSCRIPTEN__
     if( s_config.llm && params.callstack >= 0 )
@@ -644,12 +648,12 @@ void View::DrawCallstackTable( const CallstackFrameId* data, size_t size, const 
                             if( sym )
                             {
                                 const auto symtxt = m_worker.GetString( sym->file );
-                                DrawSourceTooltip( symtxt, sym->line );
+                                DrawSourceTooltip( symtxt, sym->line, sym->line );
                             }
                         }
                         else
                         {
-                            DrawSourceTooltip( filename, frame.line );
+                            DrawSourceTooltip( filename, frame.line, frame.line );
                         }
                         if( ImGui::IsItemClicked( 1 ) )
                         {
@@ -687,25 +691,11 @@ void View::DrawCallstackTable( const CallstackFrameId* data, size_t size, const 
                     if( frameData->imageName.Active() )
                     {
                         auto image = m_worker.GetString( frameData->imageName );
-                        const char* end = image + strlen( image );
-
-                        if( m_shortImageNames )
-                        {
-                            const char* ptr = end - 1;
-                            while( ptr > image && *ptr != '/' && *ptr != '\\' ) ptr--;
-                            if( *ptr == '/' || *ptr == '\\' ) ptr++;
-                            const auto cw = ImGui::GetContentRegionAvail().x;
-                            const auto tw = ImGui::CalcTextSize( image, end ).x;
-                            TextDisabledUnformatted( ptr );
-                            if( ptr != image || tw > cw ) TooltipIfHovered( image );
-                        }
-                        else
-                        {
-                            const auto cw = ImGui::GetContentRegionAvail().x;
-                            const auto tw = ImGui::CalcTextSize( image, end ).x;
-                            TextDisabledUnformatted( image );
-                            if( tw > cw ) TooltipIfHovered( image );
-                        }
+                        const char* ptr = m_shortImageNames ? ShortenImageName( image ) : image;
+                        const auto cw = ImGui::GetContentRegionAvail().x;
+                        const auto tw = ImGui::CalcTextSize( image ).x;
+                        TextDisabledUnformatted( ptr );
+                        if( ptr != image || tw > cw ) TooltipIfHovered( image );
                     }
                 }
             }

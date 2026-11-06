@@ -1,5 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <algorithm>
+#include <limits>
 #include <unordered_map>
 
 #ifdef _MSC_VER
@@ -24,6 +26,20 @@ using namespace pybind11::literals;
 
 namespace tracy
 {
+
+// locked() wraps a capture-less Worker-reading lambda with
+// Worker::ObtainLockForMainThread() before it touches w — the same
+// cooperative lock the GUI already takes once per frame, so reads
+// can't race the receive thread mutating live data underneath them.
+template <typename Ret, typename... Args>
+auto locked( Ret (*f)( const Worker&, Args... ) )
+{
+    return [f]( Worker& w, Args... args ) -> Ret
+    {
+        auto lock = w.ObtainLockForMainThread();
+        return f( w, args... );
+    };
+}
 
 PYBIND11_MODULE( TracyServerBindings, m )
 {
@@ -192,56 +208,63 @@ PYBIND11_MODULE( TracyServerBindings, m )
         .def( py::init<const char*, uint16_t, int64_t>(), "addr"_a, "port"_a, "memoryLimit"_a = -1 )
 
         // --- Capture metadata ---
-        .def( "get_capture_name", &Worker::GetCaptureName )
-        .def( "get_capture_program", &Worker::GetCaptureProgram )
-        .def( "get_capture_time", &Worker::GetCaptureTime )
-        .def( "get_host_info", &Worker::GetHostInfo )
-        .def( "get_pid", &Worker::GetPid )
-        .def( "get_resolution", &Worker::GetResolution )
-        .def( "get_first_time", &Worker::GetFirstTime )
-        .def( "get_last_time", &Worker::GetLastTime )
-        .def( "get_cpu_manufacturer", &Worker::GetCpuManufacturer )
+        .def( "get_capture_name", locked( +[]( const Worker& w ) { return w.GetCaptureName(); } ) )
+        .def( "get_capture_program", locked( +[]( const Worker& w ) { return w.GetCaptureProgram(); } ) )
+        .def( "get_capture_time", locked( +[]( const Worker& w ) { return w.GetCaptureTime(); } ) )
+        .def( "get_host_info", locked( +[]( const Worker& w ) { return w.GetHostInfo(); } ) )
+        .def( "get_pid", locked( +[]( const Worker& w ) { return w.GetPid(); } ) )
+        .def( "get_resolution", locked( +[]( const Worker& w ) { return w.GetResolution(); } ) )
+        .def( "get_first_time", locked( +[]( const Worker& w ) { return w.GetFirstTime(); } ) )
+        .def( "get_last_time", locked( +[]( const Worker& w ) { return w.GetLastTime(); } ) )
+        .def( "get_cpu_manufacturer", locked( +[]( const Worker& w ) { return w.GetCpuManufacturer(); } ) )
 
         // --- Counts ---
-        .def( "get_zone_count", &Worker::GetZoneCount )
-        .def( "get_gpu_zone_count", &Worker::GetGpuZoneCount )
-        .def( "get_lock_count", &Worker::GetLockCount )
-        .def( "get_plot_count", &Worker::GetPlotCount )
-        .def( "get_context_switch_count", &Worker::GetContextSwitchCount )
-        .def( "get_src_loc_count", &Worker::GetSrcLocCount )
-        .def( "get_callstack_sample_count", &Worker::GetCallstackSampleCount )
-        .def( "get_message_count", []( const Worker& w ) {
+        .def( "get_zone_count", locked( +[]( const Worker& w ) { return w.GetZoneCount(); } ) )
+        .def( "get_gpu_zone_count", locked( +[]( const Worker& w ) { return w.GetGpuZoneCount(); } ) )
+        .def( "get_lock_count", locked( +[]( const Worker& w ) { return w.GetLockCount(); } ) )
+        .def( "get_plot_count", locked( +[]( const Worker& w ) { return w.GetPlotCount(); } ) )
+        .def( "get_context_switch_count", locked( +[]( const Worker& w ) { return w.GetContextSwitchCount(); } ) )
+        .def( "get_src_loc_count", locked( +[]( const Worker& w ) { return w.GetSrcLocCount(); } ) )
+        .def( "get_callstack_sample_count", locked( +[]( const Worker& w ) { return w.GetCallstackSampleCount(); } ) )
+        .def( "get_message_count", locked( +[]( const Worker& w ) {
         return w.GetMessages().size();
-    } )
+    } ) )
 
         // --- Sections ---
-        .def( "get_sections", []( const Worker& w ) {
+        .def( "get_sections", locked( +[]( const Worker& w ) {
+            // GetSections() is keyed by category (multiple named section sets);
+            // flatten across categories, tagging each item with its category name.
         py::list result;
-        for( auto& s : w.GetSections() )
+        for( const auto& kv : w.GetSections() )
         {
-            py::dict d;
-            d["start"] = s.start.Val();
-            d["end"] = s.end.Val();
-            d["text"] = std::string( w.GetString( s.text ) );
-            result.append( d );
+            const char* category = w.GetSectionCategoryDescription( kv.first );
+            for( const auto& s : kv.second )
+            {
+                py::dict d;
+                d["category"] = std::string( category );
+                d["start"] = s.start.Val();
+                d["end"] = s.end.Val();
+                d["text"] = std::string( w.GetString( s.text ) );
+                result.append( d );
+            }
         }
         return result;
-    } )
+    } ) )
 
         // --- Source locations / zones ---
-        .def( "get_src_loc", []( const Worker& w, int16_t id ) {
+        .def( "get_src_loc", locked( +[]( const Worker& w, int16_t id ) {
         return w.GetSourceLocation( id );
-    } ).def( "get_zone_name", []( const Worker& w, int16_t id ) {
+    } ) ).def( "get_zone_name", locked( +[]( const Worker& w, int16_t id ) {
         return w.GetZoneName( w.GetSourceLocation( id ) );
-    } )
+    } ) )
 #ifndef TRACY_NO_STATISTICS
-        .def( "get_zone_stats", []( const Worker& w, int16_t id ) {
+        .def( "get_zone_stats", locked( +[]( const Worker& w, int16_t id ) {
         const auto& stats = w.GetZonesForSourceLocation( id );
         const size_t cnt = stats.zones.size();
         return ZoneStats{ stats.min, stats.max, stats.total, stats.sumSq, cnt, cnt ? (double)stats.total / cnt : 0.0 };
-    } )
+    } ) )
 #endif
-        .def( "get_all_zone_stats", []( const Worker& w ) {
+        .def( "get_all_zone_stats", locked( +[]( const Worker& w ) {
         py::dict result;
 #ifndef TRACY_NO_STATISTICS
         for( const auto& kv : w.GetSourceLocationZones() )
@@ -255,7 +278,7 @@ PYBIND11_MODULE( TracyServerBindings, m )
         }
 #endif
         return result;
-    } ).def( "get_root_zone_stats", []( const Worker& w ) {
+    } ) ).def( "get_root_zone_stats", locked( +[]( const Worker& w ) {
             // Aggregate stats for top-level (root) zones only — no nesting, safe to sum
             // File-loaded data uses is_magic() — zones stored inline, not as short_ptr
         struct Acc
@@ -298,10 +321,46 @@ PYBIND11_MODULE( TracyServerBindings, m )
             result[name] = ZoneStats{ s.min, s.max, s.total, s.sumSq, s.count, avg };
         }
         return result;
-    } )
+    } ) )
+
+        .def( "get_thread_zone_stats", locked( +[]( const Worker& w, uint64_t threadId ) {
+            // Same shape and name handling as get_all_zone_stats(), counting only zones recorded on one thread
+        py::dict result;
+#ifndef TRACY_NO_STATISTICS
+        std::unordered_map<std::string, int16_t> chosen;
+        for( const auto& kv : w.GetSourceLocationZones() )
+        {
+            if( kv.second.zones.size() == 0 ) continue;
+            chosen[w.GetZoneName( w.GetSourceLocation( kv.first ) )] = kv.first;
+        }
+        for( const auto& kv : w.GetSourceLocationZones() )
+        {
+            const std::string name = w.GetZoneName( w.GetSourceLocation( kv.first ) );
+            const auto it = chosen.find( name );
+            if( it == chosen.end() || it->second != kv.first ) continue;
+            int64_t min = INT64_MAX, max = INT64_MIN, total = 0;
+            double sumSq = 0;
+            size_t count = 0;
+            for( const auto& ztd : kv.second.zones )
+            {
+                if( w.DecompressThread( ztd.Thread() ) != threadId ) continue;
+                const auto* z = ztd.Zone();
+                if( !z || !z->IsEndValid() ) continue;
+                const int64_t dur = z->End() - z->Start();
+                total += dur;
+                sumSq += (double)dur * dur;
+                count++;
+                if( dur < min ) min = dur;
+                if( dur > max ) max = dur;
+            }
+            if( count ) result[name.c_str()] = ZoneStats{ min, max, total, sumSq, count, (double)total / count };
+        }
+#endif
+        return result;
+    } ), "thread_id"_a )
 
         // --- Per-occurrence zone data (for temporal correlation / distribution) ---
-        .def( "get_zone_durations", []( const Worker& w, const std::string& name, size_t maxSamples ) {
+        .def( "get_zone_durations", locked( +[]( const Worker& w, const std::string& name, size_t maxSamples ) {
             // Accumulates across ALL srclocs with this name (same name can appear at multiple srclocs)
         std::vector<int64_t> result;
 #ifndef TRACY_NO_STATISTICS
@@ -318,8 +377,8 @@ PYBIND11_MODULE( TracyServerBindings, m )
     done_durations:;
 #endif
         return result;
-    }, "name"_a, "max_samples"_a = 100000 )
-        .def( "get_zone_occurrences", []( const Worker& w, const std::string& name, size_t maxSamples ) {
+    } ), "name"_a, "max_samples"_a = 100000 )
+        .def( "get_zone_occurrences", locked( +[]( const Worker& w, const std::string& name, size_t maxSamples ) {
             // Returns list of (start_ns, duration_ns) — accumulates across all srclocs with this name
         std::vector<std::pair<int64_t, int64_t>> result;
 #ifndef TRACY_NO_STATISTICS
@@ -336,8 +395,8 @@ PYBIND11_MODULE( TracyServerBindings, m )
     done_occurrences:;
 #endif
         return result;
-    }, "name"_a, "max_samples"_a = 100000 )
-        .def( "get_zone_annotations", []( const Worker& w, const std::string& name, size_t maxSamples ) {
+    } ), "name"_a, "max_samples"_a = 100000 )
+        .def( "get_zone_annotations", locked( +[]( const Worker& w, const std::string& name, size_t maxSamples ) {
             // Returns text annotations attached to individual zone occurrences
         std::vector<std::string> result;
 #ifndef TRACY_NO_STATISTICS
@@ -358,8 +417,8 @@ PYBIND11_MODULE( TracyServerBindings, m )
     done_annotations:;
 #endif
         return result;
-    }, "name"_a, "max_samples"_a = 10000 )
-        .def( "get_gpu_zone_durations", []( const Worker& w, const std::string& name, size_t maxSamples ) {
+    } ), "name"_a, "max_samples"_a = 10000 )
+        .def( "get_gpu_zone_durations", locked( +[]( const Worker& w, const std::string& name, size_t maxSamples ) {
         std::vector<int64_t> result;
         for( const auto& kv : w.GetGpuSourceLocationZones() )
         {
@@ -373,8 +432,8 @@ PYBIND11_MODULE( TracyServerBindings, m )
         }
     done_gpu_dur:;
         return result;
-    }, "name"_a, "max_samples"_a = 100000 )
-        .def( "get_gpu_zone_occurrences", []( const Worker& w, const std::string& name, size_t maxSamples ) {
+    } ), "name"_a, "max_samples"_a = 100000 )
+        .def( "get_gpu_zone_occurrences", locked( +[]( const Worker& w, const std::string& name, size_t maxSamples ) {
         std::vector<std::pair<int64_t, int64_t>> result;
         for( const auto& kv : w.GetGpuSourceLocationZones() )
         {
@@ -388,10 +447,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
         }
     done_gpu_occ:;
         return result;
-    }, "name"_a, "max_samples"_a = 100000 )
+    } ), "name"_a, "max_samples"_a = 100000 )
 
         // --- Callstack resolution ---
-        .def( "get_callstack_frames", []( const Worker& w, uint32_t callstackIdx ) {
+        .def( "get_callstack_frames", locked( +[]( const Worker& w, uint32_t callstackIdx ) {
         py::list result;
         const auto& cs = w.GetCallstack( callstackIdx );
         for( size_t i = 0; i < cs.size(); ++i )
@@ -410,10 +469,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
             }
         }
         return result;
-    }, "callstack_idx"_a )
+    } ), "callstack_idx"_a )
 
         // --- Context switches per thread ---
-        .def( "get_thread_context_switches", []( const Worker& w, uint64_t tid, size_t maxSamples ) {
+        .def( "get_thread_context_switches", locked( +[]( const Worker& w, uint64_t tid, size_t maxSamples ) {
         py::list result;
         const auto* cs = const_cast<Worker&>( w ).GetContextSwitchData( tid );
         if( !cs ) return result;
@@ -429,10 +488,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
             result.append( d );
         }
         return result;
-    }, "tid"_a, "max_samples"_a = 50000 )
+    } ), "tid"_a, "max_samples"_a = 50000 )
 
         // --- CPU thread running time / migrations ---
-        .def( "get_cpu_thread_data", []( const Worker& w ) {
+        .def( "get_cpu_thread_data", locked( +[]( const Worker& w ) {
         py::dict result;
         for( const auto& kv : w.GetCpuThreadData() )
         {
@@ -443,10 +502,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
             result[py::int_( kv.first )] = d;
         }
         return result;
-    } )
+    } ) )
 
         // --- Zone occurrences with thread attribution ---
-        .def( "get_zone_occurrences_with_thread", []( const Worker& w, const std::string& name, size_t maxSamples ) {
+        .def( "get_zone_occurrences_with_thread", locked( +[]( const Worker& w, const std::string& name, size_t maxSamples ) {
             // Returns list of (start_ns, duration_ns, thread_id) — thread_id is the OS thread ID
         std::vector<std::tuple<int64_t, int64_t, uint64_t>> result;
 #ifndef TRACY_NO_STATISTICS
@@ -467,10 +526,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
     done_occ_thread:;
 #endif
         return result;
-    }, "name"_a, "max_samples"_a = 100000 )
+    } ), "name"_a, "max_samples"_a = 100000 )
 
         // --- Child zone stats: aggregate direct children of all occurrences of a parent zone ---
-        .def( "get_child_zone_stats", []( const Worker& w, const std::string& name, size_t maxParents ) {
+        .def( "get_child_zone_stats", locked( +[]( const Worker& w, const std::string& name, size_t maxParents ) {
             // Uses SourceLocationZones for O(occurrences) lookup — avoids walking the full zone tree.
             // File-loaded data sets is_magic() on child vectors (inline ZoneEvent, not short_ptr).
         struct Acc
@@ -529,10 +588,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
             result[cname] = ZoneStats{ s.min, s.max, s.total, s.sumSq, s.count, avg };
         }
         return result;
-    }, "name"_a, "max_parents"_a = 100000 )
+    } ), "name"_a, "max_parents"_a = 100000 )
 
         // --- Zone source location (file / line / function for LLM code navigation) ---
-        .def( "get_zone_source_location", []( const Worker& w, const std::string& name ) {
+        .def( "get_zone_source_location", locked( +[]( const Worker& w, const std::string& name ) {
         py::dict result;
 #ifndef TRACY_NO_STATISTICS
         for( const auto& kv : w.GetSourceLocationZones() )
@@ -548,8 +607,8 @@ PYBIND11_MODULE( TracyServerBindings, m )
         }
 #endif
         return result;
-    }, "name"_a )
-        .def( "get_all_zone_source_locations", []( const Worker& w ) {
+    } ), "name"_a )
+        .def( "get_all_zone_source_locations", locked( +[]( const Worker& w ) {
             // Returns {zone_name: {file, line, function, color}} for every unique zone name.
             // Uses first srcloc found per name — sufficient for navigation purposes.
         py::dict result;
@@ -568,10 +627,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
         }
 #endif
         return result;
-    } )
+    } ) )
 
         // --- Per-zone callstack samples (call paths leading into a zone) ---
-        .def( "get_zone_callstacks", []( const Worker& w, const std::string& name, size_t maxSamples ) {
+        .def( "get_zone_callstacks", locked( +[]( const Worker& w, const std::string& name, size_t maxSamples ) {
         py::list result;
 #ifndef TRACY_NO_STATISTICS
         for( const auto& kv : w.GetSourceLocationZones() )
@@ -608,10 +667,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
     done_callstacks:;
 #endif
         return result;
-    }, "name"_a, "max_samples"_a = 1000 )
+    } ), "name"_a, "max_samples"_a = 1000 )
 
         // --- Symbol-level sampling stats (inclusive / exclusive counts from call-stack profiling) ---
-        .def( "get_symbol_stats", []( const Worker& w ) {
+        .def( "get_symbol_stats", locked( +[]( const Worker& w ) {
         py::list result;
         for( const auto& kv : w.GetSymbolStats() )
         {
@@ -632,10 +691,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
             result.append( d );
         }
         return result;
-    } )
+    } ) )
 
         // --- Timestamps of all call-stack samples hitting a specific symbol ---
-        .def( "get_samples_for_symbol", []( const Worker& w, uint64_t symAddr ) {
+        .def( "get_samples_for_symbol", locked( +[]( const Worker& w, uint64_t symAddr ) {
         py::list result;
         const auto* samples = w.GetSamplesForSymbol( symAddr );
         if( !samples ) return result;
@@ -647,10 +706,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
             result.append( d );
         }
         return result;
-    }, "sym_addr"_a )
+    } ), "sym_addr"_a )
 
         // --- Hardware performance counter summary per symbol (IPC, cache-miss rate, branch-miss rate) ---
-        .def( "get_hw_sample_summary", []( const Worker& w ) {
+        .def( "get_hw_sample_summary", locked( +[]( const Worker& w ) {
         py::list result;
         for( const auto& kv : w.GetSymbolStats() )
         {
@@ -689,10 +748,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
             result.append( d );
         }
         return result;
-    } )
+    } ) )
 
         // --- Raw memory allocation events (ptr, size, timestamps) for temporal zone correlation ---
-        .def( "get_memory_events", []( const Worker& w, size_t maxCount, const std::string& poolName ) {
+        .def( "get_memory_events", locked( +[]( const Worker& w, size_t maxCount, const std::string& poolName ) {
         py::list result;
         for( const auto& kv : w.GetMemNameMap() )
         {
@@ -717,10 +776,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
             if( !poolName.empty() ) break;
         }
         return result;
-    }, "max_count"_a = 100000, "pool_name"_a = "" )
+    } ), "max_count"_a = 100000, "pool_name"_a = "" )
 
         // --- Per-lock wait/contention stats (total and average wait time) ---
-        .def( "get_lock_wait_stats", []( const Worker& w ) {
+        .def( "get_lock_wait_stats", locked( +[]( const Worker& w ) {
         py::list result;
         for( const auto& kv : w.GetLockMap() )
         {
@@ -733,25 +792,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
                 name = w.GetZoneName( w.GetSourceLocation( lm->srcloc ) );
             int64_t totalWaitNs = 0;
             uint64_t contentionCount = 0;
-            std::unordered_map<uint8_t, int64_t> pendingWait;
-            for( const auto& evPtr : lm->timeline )
+            for( const auto& ti : lm->threads )
             {
-                const auto* ev = evPtr.ptr.get();
-                if( !ev ) continue;
-                if( ev->type == LockEvent::Type::Wait || ev->type == LockEvent::Type::WaitShared )
-                {
-                    pendingWait[ev->thread] = ev->Time();
-                }
-                else if( ev->type == LockEvent::Type::Obtain || ev->type == LockEvent::Type::ObtainShared )
-                {
-                    auto it = pendingWait.find( ev->thread );
-                    if( it != pendingWait.end() )
-                    {
-                        totalWaitNs += ev->Time() - it->second;
-                        contentionCount++;
-                        pendingWait.erase( it );
-                    }
-                }
+                totalWaitNs += ti.waitTotal;
+                contentionCount += ti.waitCount;
             }
             if( contentionCount == 0 ) continue;
             py::dict d;
@@ -759,14 +803,17 @@ PYBIND11_MODULE( TracyServerBindings, m )
             d["total_wait_ns"] = totalWaitNs;
             d["avg_wait_ns"] = (double)totalWaitNs / (double)contentionCount;
             d["contention_count"] = contentionCount;
-            d["threads"] = lm->threadList;
+            std::vector<uint64_t> threads;
+            threads.reserve( lm->threads.size() );
+            for( const auto& ti : lm->threads ) threads.push_back( ti.thread );
+            d["threads"] = threads;
             result.append( d );
         }
         return result;
-    } )
+    } ) )
 
         // --- GPU zone stats ---
-        .def( "get_all_gpu_zone_stats", []( const Worker& w ) {
+        .def( "get_all_gpu_zone_stats", locked( +[]( const Worker& w ) {
         py::dict result;
         for( const auto& kv : w.GetGpuSourceLocationZones() )
         {
@@ -778,7 +825,7 @@ PYBIND11_MODULE( TracyServerBindings, m )
                 result[name] = GpuZoneStats{ s.min, s.max, s.total, s.sumSq, cnt, (double)s.total / cnt };
         }
         return result;
-    } ).def( "get_gpu_child_zone_stats", []( const Worker& w, const std::string& name, size_t maxParents ) {
+    } ) ).def( "get_gpu_child_zone_stats", locked( +[]( const Worker& w, const std::string& name, size_t maxParents ) {
             // GPU equivalent of get_child_zone_stats — returns per-child-name GPU duration stats
             // for all occurrences of the named parent GPU zone.
         struct Acc
@@ -828,13 +875,13 @@ PYBIND11_MODULE( TracyServerBindings, m )
             result[cname] = GpuZoneStats{ s.min, s.max, s.total, s.sumSq, s.count, (double)s.total / s.count };
         }
         return result;
-    }, "name"_a, "max_parents"_a = 100000 )
+    } ), "name"_a, "max_parents"_a = 100000 )
 
         // --- Frame sets ---
-        .def( "get_frame_count", []( const Worker& w ) {
+        .def( "get_frame_count", locked( +[]( const Worker& w ) -> size_t {
         auto frames = w.GetFramesBase();
         return frames ? w.GetFrameCount( *frames ) : 0;
-    } ).def( "get_all_frame_stats", []( const Worker& w ) {
+    } ) ).def( "get_all_frame_stats", locked( +[]( const Worker& w ) {
         std::vector<FrameStats> result;
         for( const auto* fd : w.GetFrames() )
         {
@@ -846,7 +893,7 @@ PYBIND11_MODULE( TracyServerBindings, m )
                 cnt, cnt ? (double)fd->total / cnt : 0.0 } );
         }
         return result;
-    } ).def( "get_frame_boundaries", []( const Worker& w ) {
+    } ) ).def( "get_frame_boundaries", locked( +[]( const Worker& w ) {
         auto* fd = w.GetFramesBase();
         if( !fd ) return std::vector<std::pair<int64_t, int64_t>>{};
         const size_t cnt = w.GetFrameCount( *fd );
@@ -855,7 +902,7 @@ PYBIND11_MODULE( TracyServerBindings, m )
         for( size_t i = 0; i < cnt; ++i )
             result.emplace_back( w.GetFrameBegin( *fd, i ), w.GetFrameEnd( *fd, i ) );
         return result;
-    } ).def( "get_frame_times", []( const Worker& w ) {
+    } ) ).def( "get_frame_times", locked( +[]( const Worker& w ) {
         auto* fd = w.GetFramesBase();
         if( !fd ) return std::vector<int64_t>{};
         const size_t cnt = w.GetFrameCount( *fd );
@@ -864,7 +911,7 @@ PYBIND11_MODULE( TracyServerBindings, m )
         for( size_t i = 0; i < cnt; ++i )
             times.push_back( w.GetFrameTime( *fd, i ) );
         return times;
-    } ).def( "get_frame_times_named", []( const Worker& w, const std::string& name ) {
+    } ) ).def( "get_frame_times_named", locked( +[]( const Worker& w, const std::string& name ) {
         for( const auto* fd : w.GetFrames() )
         {
             if( !fd ) continue;
@@ -879,7 +926,7 @@ PYBIND11_MODULE( TracyServerBindings, m )
             }
         }
         return std::vector<int64_t>{};
-    } ).def( "get_zones_in_frame", []( const Worker& w, size_t frameIdx ) {
+    } ) ).def( "get_zones_in_frame", locked( +[]( const Worker& w, size_t frameIdx ) {
             // Returns {zone_name: {count, total_ns}} for all CPU zones that STARTED within
             // the specified frame's time window. Uses sorted thread timelines for early exit.
         auto* fd = w.GetFramesBase();
@@ -970,10 +1017,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
             result[zname] = d;
         }
         return result;
-    }, "frame_idx"_a )
+    } ), "frame_idx"_a )
 
         // --- Messages ---
-        .def( "get_messages", []( const Worker& w ) {
+        .def( "get_messages", locked( +[]( const Worker& w ) {
         const auto& msgs = w.GetMessages();
         std::vector<MessageInfo> result;
         result.reserve( msgs.size() );
@@ -987,10 +1034,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
                 (uint64_t)msg.thread } );
         }
         return result;
-    } )
+    } ) )
 
         // --- Plots ---
-        .def( "get_plots", []( const Worker& w ) {
+        .def( "get_plots", locked( +[]( const Worker& w ) {
         static const char* plotTypeStr[] = { "User", "Memory", "SysTime", "Power" };
         std::vector<PlotSummary> result;
         for( const auto* pd : w.GetPlots() )
@@ -1005,10 +1052,50 @@ PYBIND11_MODULE( TracyServerBindings, m )
                 std::string( typeStr ) } );
         }
         return result;
-    } )
+    } ) )
+
+        .def( "get_plot_samples", locked( +[]( const Worker& w, const std::string& name, int64_t startNs, int64_t endNs, size_t maxSamples ) {
+        std::vector<std::pair<int64_t, double>> result;
+        for( const auto* pd : w.GetPlots() )
+        {
+            if( !pd || w.GetString( pd->name ) != name ) continue;
+            auto first = std::lower_bound( pd->data.begin(), pd->data.end(), startNs,
+                []( const PlotItem& item, int64_t t ) { return item.time.Val() < t; } );
+            auto last = std::lower_bound( first, pd->data.end(), endNs,
+                []( const PlotItem& item, int64_t t ) { return item.time.Val() < t; } );
+            const size_t n = last - first;
+            const size_t step = maxSamples && n > maxSamples ? ( n + maxSamples - 1 ) / maxSamples : 1;
+            for( auto it = first; it < last; it += std::min<size_t>( step, last - it ) )
+                result.emplace_back( it->time.Val(), it->val );
+            break;
+        }
+        return result;
+    } ), py::arg( "name" ), py::arg( "start_ns" ) = 0, py::arg( "end_ns" ) = std::numeric_limits<int64_t>::max(), py::arg( "max_samples" ) = 100000 )
+
+        .def( "get_plot_window_stats", locked( +[]( const Worker& w, const std::string& name, int64_t startNs, int64_t endNs ) {
+        PlotSummary result{ name, 0, 0, 0, 0, 0, "User" };
+        static const char* plotTypeStr[] = { "User", "Memory", "SysTime", "Power" };
+        for( const auto* pd : w.GetPlots() )
+        {
+            if( !pd || w.GetString( pd->name ) != name ) continue;
+            result.type = (uint8_t)pd->type < 4 ? plotTypeStr[(uint8_t)pd->type] : "Unknown";
+            auto first = std::lower_bound( pd->data.begin(), pd->data.end(), startNs,
+                []( const PlotItem& item, int64_t t ) { return item.time.Val() < t; } );
+            for( auto it = first; it != pd->data.end() && it->time.Val() < endNs; ++it )
+            {
+                if( result.count == 0 || it->val < result.min ) result.min = it->val;
+                if( result.count == 0 || it->val > result.max ) result.max = it->val;
+                result.sum += it->val;
+                result.count++;
+            }
+            result.avg = result.count ? result.sum / result.count : 0.0;
+            break;
+        }
+        return result;
+    } ), py::arg( "name" ), py::arg( "start_ns" ) = 0, py::arg( "end_ns" ) = std::numeric_limits<int64_t>::max() )
 
         // --- Memory pools ---
-        .def( "get_memory_pools", []( const Worker& w ) {
+        .def( "get_memory_pools", locked( +[]( const Worker& w ) {
         std::vector<MemPoolSummary> result;
         for( const auto& kv : w.GetMemNameMap() )
         {
@@ -1018,10 +1105,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
                 name, md->high, md->low, md->usage, md->data.size() } );
         }
         return result;
-    } )
+    } ) )
 
         // --- Locks ---
-        .def( "get_locks", []( const Worker& w ) {
+        .def( "get_locks", locked( +[]( const Worker& w ) {
         std::vector<LockSummary> result;
         for( const auto& kv : w.GetLockMap() )
         {
@@ -1033,19 +1120,22 @@ PYBIND11_MODULE( TracyServerBindings, m )
             else
                 name = w.GetZoneName( w.GetSourceLocation( lm->srcloc ) );
             const char* typeStr = lm->type == LockType::Lockable ? "Lockable" : "SharedLockable";
+            std::vector<uint64_t> threads;
+            threads.reserve( lm->threads.size() );
+            for( const auto& ti : lm->threads ) threads.push_back( ti.thread );
             result.push_back( LockSummary{
                 name,
                 lm->isContended,
                 std::string( typeStr ),
                 lm->timeAnnounce,
                 lm->timeTerminate,
-                lm->threadList } );
+                std::move( threads ) } );
         }
         return result;
-    } )
+    } ) )
 
         // --- GPU contexts ---
-        .def( "get_gpu_contexts", []( const Worker& w ) {
+        .def( "get_gpu_contexts", locked( +[]( const Worker& w ) {
         static const char* gpuTypeStr[] = {
             "Invalid", "OpenGL", "Vulkan", "OpenCL", "Direct3D12", "Direct3D11", "Metal", "Custom", "CUDA", "Rocprof", "WebGPU" };
         static size_t numTypes = sizeof(gpuTypeStr) / sizeof(gpuTypeStr[0]);
@@ -1060,10 +1150,10 @@ PYBIND11_MODULE( TracyServerBindings, m )
                 name, ctx->count, std::string( typeStr ), ctx->thread } );
         }
         return result;
-    } )
+    } ) )
 
         // --- Threads ---
-        .def( "get_threads", []( const Worker& w ) {
+        .def( "get_threads", locked( +[]( const Worker& w ) {
             // Returns list of dicts to avoid raw-pointer pybind11 ownership issues
         py::list result;
         for( const auto& t : w.GetThreadData() )
@@ -1077,14 +1167,47 @@ PYBIND11_MODULE( TracyServerBindings, m )
             result.append( d );
         }
         return result;
-    } ).def( "get_thread_name", []( const Worker& w, uint64_t tid ) {
+    } ) ).def( "get_thread_name", locked( +[]( const Worker& w, uint64_t tid ) {
         return w.GetThreadName( tid );
-    } )
+    } ) )
 
         // --- Connection control ---
         .def( "is_connected", &Worker::IsConnected )
         .def( "shutdown", &Worker::Shutdown )
-        .def( "disconnect", &Worker::Disconnect );
+        .def( "disconnect", &Worker::Disconnect )
+        // Plain relaxed atomic like IsConnected() above — no locked()
+        // needed. True once post-load zone/symbol stats have finished
+        // building; get_all_zone_stats() et al. can be empty until then.
+        .def( "is_background_done", &Worker::IsBackgroundDone )
+        // Raw compressed bytes read off the socket post-handshake.
+        .def( "get_data_transferred", &Worker::GetDataTransferred )
+        // Raw HandshakeStatus byte (TracyProtocol.hpp): 0=none, 1=Welcome,
+        // 2=ProtocolMismatch, 3=NotAvailable, 4=Dropped.
+        .def( "get_handshake_status", &Worker::GetHandshakeStatus )
+        // Raw Failure byte (Worker::Failure, TracyWorker.hpp): 0=None,
+        // ZoneStack, ZoneDoubleEnd, ZoneText, ZoneValue, ZoneColor, ZoneName,
+        // MemFree, MemAllocTwice, FrameEnd, FrameImageIndex, FrameImageTwice,
+        // FiberLeave, SourceLocationOverflow, LockThreadOverflow, in order.
+        .def( "get_failure_type", []( const Worker& w ) -> int { return (int)w.GetFailureType(); } )
+        // GetFailureData() as a dict: thread_id, thread_name, zone_name,
+        // function, file, line. Empty if get_failure_type() is zero.
+        .def( "get_failure_data", []( Worker& w ) {
+            py::dict d;
+            if( w.GetFailureType() == Worker::Failure::None ) return d;
+            const auto& fd = w.GetFailureData();
+            d["thread_id"] = fd.thread;
+            d["thread_name"] = w.GetThreadName( fd.thread );
+            if( fd.srcloc != 0 )
+            {
+                const auto& srcloc = w.GetSourceLocation( fd.srcloc );
+                d["zone_name"] = w.GetZoneName( srcloc );
+                d["function"] = w.GetString( srcloc.function );
+                d["file"] = w.GetString( srcloc.file );
+                d["line"] = srcloc.line;
+            }
+            if( !fd.message.empty() ) d["message"] = fd.message;
+            return d;
+        } );
 
     // -------------------------------------------------------------------------
     // FileRead

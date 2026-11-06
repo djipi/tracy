@@ -39,6 +39,7 @@ void View::DrawStatistics()
 {
     const auto scale = GetScale();
     ImGui::SetNextWindowSize( ImVec2( 1400 * scale, 600 * scale ), ImGuiCond_FirstUseEver );
+    m_statisticsConstraint.Constrain();
     ImGui::Begin( "Statistics", &m_showStatistics, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse );
     if( ImGui::GetCurrentWindowRead()->SkipItems ) { ImGui::End(); return; }
     if( !m_worker.AreSourceLocationZonesReady() && ( !m_worker.AreCallstackSamplesReady() || m_worker.GetCallstackSampleCount() == 0 ) )
@@ -65,13 +66,19 @@ void View::DrawStatistics()
         {
             ImGui::Spacing();
             ImGui::SameLine();
-            ImGui::RadioButton( ICON_FA_EYE_DROPPER " Sampling", &m_statMode, 1 );
+            if( ImGui::RadioButton( ICON_FA_EYE_DROPPER " Sampling", &m_statMode, 1 ) )
+            {
+                if( s_config.achievements ) Achieve( "samplingStats" );
+            }
         }
         else if( m_worker.GetSymbolsCount() > 0 )
         {
             ImGui::Spacing();
             ImGui::SameLine();
-            ImGui::RadioButton( ICON_FA_PUZZLE_PIECE " Symbols", &m_statMode, 1 );
+            if( ImGui::RadioButton( ICON_FA_PUZZLE_PIECE " Symbols", &m_statMode, 1 ) )
+            {
+                if( s_config.achievements ) Achieve( "samplingStats" );
+            }
         }
     }
     if( m_worker.GetGpuZoneCount() > 0 )
@@ -79,7 +86,10 @@ void View::DrawStatistics()
         ImGui::SameLine();
         ImGui::Spacing();
         ImGui::SameLine();
-        ImGui::RadioButton( ICON_FA_EYE " GPU", &m_statMode, 2 );
+        if( ImGui::RadioButton( ICON_FA_DISPLAY " GPU", &m_statMode, 2 ) )
+        {
+            if( s_config.achievements ) Achieve( "gpuStats" );
+        }
     }
     ImGui::SameLine();
     ImGui::Spacing();
@@ -244,6 +254,7 @@ void View::DrawStatistics()
                         total = it->second.nonReentrantTotal;
                         break;
                     }
+                    if( count == 0 ) continue;
                     if( !filterActive )
                     {
                         srcloc.push_back_no_space_check( SrcLocZonesSlim { it->first, (uint16_t)it->second.threadCnt.size(), count, total } );
@@ -272,6 +283,7 @@ void View::DrawStatistics()
         ImGui::Spacing();
         ImGui::SameLine();
         AccumulationModeComboBox();
+        m_statisticsConstraint.MarkMinWidth();
     }
     else if( m_statMode == 1 )
     {
@@ -314,6 +326,7 @@ void View::DrawStatistics()
         const char* locationTable = "Entry\0Sample\0Smart\0";
         ImGui::SetNextItemWidth( ImGui::CalcTextSize( "Sample" ).x + ImGui::GetTextLineHeight() * 2 );
         ImGui::Combo( "##location", &m_statSampleLocation, locationTable );
+        m_statisticsConstraint.MarkMinWidth();
     }
     else
     {
@@ -458,7 +471,8 @@ void View::DrawStatistics()
     ImGui::AlignTextToFramePadding();
     TextDisabledUnformatted( "Name" );
     ImGui::SameLine();
-    m_statisticsFilter.Draw( ICON_FA_FILTER "###resultFilter", 200 );
+    ImGui::SetNextItemWidth( 200 );
+    m_statisticsFilter.Draw( ICON_FA_FILTER "###resultFilter" );
     ImGui::SameLine();
     if( ImGui::Button( ICON_FA_DELETE_LEFT " Clear" ) )
     {
@@ -473,7 +487,8 @@ void View::DrawStatistics()
         ImGui::SameLine();
         ToggleButton( ICON_FA_SCISSORS, m_shortImageNames );
         ImGui::SameLine();
-        m_statisticsImageFilter.Draw( ICON_FA_FILTER "###imageFilter", 200 );
+        ImGui::SetNextItemWidth( 200 );
+        m_statisticsImageFilter.Draw( ICON_FA_FILTER "###imageFilter" );
         ImGui::SameLine();
         if( ImGui::BeginCombo( "###imageCombo", nullptr, ImGuiComboFlags_NoPreview | ImGuiComboFlags_HeightLarge ) )
         {
@@ -579,6 +594,7 @@ void View::DrawStatistics()
         ImGui::SameLine();
         ImGui::Checkbox( ICON_FA_FIRE " Top inline", &m_topInline );
         if( m_statSeparateInlines ) ImGui::EndDisabled();
+        m_statisticsConstraint.MarkMinWidth();
     }
 
     ImGui::Separator();
@@ -716,7 +732,7 @@ void View::DrawStatistics()
                     auto name = m_worker.GetString( srcloc.name.active ? srcloc.name : srcloc.function );
                     SmallColorBox( GetSrcLocColor( srcloc, 0 ) );
                     ImGui::SameLine();
-                    if( m_statMode == 0 )
+                    if( m_statMode == 0 || m_statMode == 2 )
                     {
                         if( ImGui::Selectable( name, m_findZone.show && !m_findZone.match.empty() && m_findZone.match[m_findZone.selMatch] == v.srcloc, ImGuiSelectableFlags_SpanAllColumns ) )
                         {
@@ -740,7 +756,7 @@ void View::DrawStatistics()
                     TextDisabledUnformatted( LocationToString( file, srcloc.line ) );
                     if( ImGui::IsItemHovered() )
                     {
-                        DrawSourceTooltip( file, srcloc.line );
+                        DrawSourceTooltip( file, srcloc.line, srcloc.line );
                         if( ImGui::IsItemClicked( 1 ) )
                         {
                             if( SourceFileValid( file, m_worker.GetCaptureTime(), *this, m_worker ) )
@@ -996,7 +1012,33 @@ void View::DrawStatistics()
             }
         }
 
-        DrawSamplesStatistics( data, timeRange, m_statAccumulationMode );
+        // The denominator is the number of collected samples, excluding context
+        // switch samples, which do not participate in the sampling statistics. This
+        // way the percentages have the same meaning with and without an active
+        // range filter.
+        uint64_t totalSamples;
+        if( m_statRange.active )
+        {
+            static const auto CountInRange = []( const auto& vec, int64_t min, int64_t max ) -> uint64_t {
+                auto it = std::lower_bound( vec.begin(), vec.end(), min, []( const auto& lhs, const auto& rhs ) { return lhs.time.Val() < rhs; } );
+                auto end = std::lower_bound( it, vec.end(), max, []( const auto& lhs, const auto& rhs ) { return lhs.time.Val() < rhs; } );
+                return end - it;
+            };
+            totalSamples = 0;
+            for( auto& td : m_worker.GetThreadData() )
+            {
+                const auto cnt = CountInRange( td->samples, m_statRange.min, m_statRange.max );
+                const auto ctx = CountInRange( td->ctxSwitchSamples, m_statRange.min, m_statRange.max );
+                if( cnt > ctx ) totalSamples += cnt - ctx;
+            }
+        }
+        else
+        {
+            const auto cnt = m_worker.GetCallstackSampleCount();
+            const auto ctx = m_worker.GetContextSwitchSampleCount();
+            totalSamples = cnt > ctx ? cnt - ctx : 0;
+        }
+        DrawSamplesStatistics( data, timeRange, totalSamples, m_statAccumulationMode );
     }
     ImGui::End();
 }

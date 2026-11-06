@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "TracyAssert.hpp"
 #include "TracyTaggedUserlandAddress.hpp"
 #include "TracyForceInline.hpp"
 
@@ -83,6 +84,7 @@ enum class QueueType : uint8_t
     FiberLeave,
     SectionEnter,
     SectionLeave,
+    SectionSetup,
     Terminate,
     KeepAlive,
     ThreadContext,
@@ -315,6 +317,7 @@ struct QueueSectionEnter
 {
     int64_t time;
     uint32_t id;
+    uint16_t category;
 };
 
 struct QueueSectionEnterFat : public QueueSectionEnter
@@ -327,6 +330,17 @@ struct QueueSectionLeave
 {
     int64_t time;
     uint32_t id;
+};
+
+struct QueueSectionSetup
+{
+    uint16_t category;
+};
+
+struct QueueSectionSetupFat : public QueueSectionSetup
+{
+    uint64_t text;      // ptr
+    uint16_t size;
 };
 
 struct QueueLockTerminate
@@ -426,13 +440,13 @@ tracy_force_inline uint8_t MakeMessageMetadata(MessageSourceType source, Message
 
 tracy_force_inline MessageSourceType MessageSourceFromMetadata(uint8_t metadata)
 {
-    assert( ( metadata & 0x0F ) < (uint8_t)MessageSourceType::COUNT );
+    TRACY_ASSERT( ( metadata & 0x0F ) < (uint8_t)MessageSourceType::COUNT );
     return (MessageSourceType)( metadata & 0x0F );
 }
 
 tracy_force_inline MessageSeverity MessageSeverityFromMetadata(uint8_t metadata)
 {
-    assert( ( ( metadata & 0xF0 ) >> 4 ) < (uint8_t)MessageSeverity::COUNT );
+    TRACY_ASSERT( ( ( metadata & 0xF0 ) >> 4 ) < (uint8_t)MessageSeverity::COUNT );
     return (MessageSeverity)( ( metadata & 0xF0 ) >> 4 );
 }
 
@@ -520,8 +534,11 @@ enum class GpuContextType : uint8_t
 
 enum GpuContextFlags : uint8_t
 {
+    GpuContextNone          = 0,
     GpuContextCalibration   = 1 << 0
 };
+
+constexpr int32_t InvalidGpuContextId = -1;
 
 struct QueueGpuNewContext
 {
@@ -944,6 +961,8 @@ struct QueueItem
         QueueSectionEnter sectionEnter;
         QueueSectionEnterFat sectionEnterFat;
         QueueSectionLeave sectionLeave;
+        QueueSectionSetup sectionSetup;
+        QueueSectionSetupFat sectionSetupFat;
         QueueGpuZoneAnnotation zoneAnnotation;
     };
 };
@@ -1025,6 +1044,7 @@ static constexpr size_t QueueDataSize[] = {
     sizeof( QueueHeader ) + sizeof( QueueFiberLeave ),
     sizeof( QueueHeader ) + sizeof( QueueSectionEnter ),
     sizeof( QueueHeader ) + sizeof( QueueSectionLeave ),
+    sizeof( QueueHeader ) + sizeof( QueueSectionSetup ),
     // above items must be first
     sizeof( QueueHeader ),                                  // terminate
     sizeof( QueueHeader ),                                  // keep alive

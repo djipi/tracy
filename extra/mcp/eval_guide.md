@@ -19,13 +19,25 @@ data surface. Common entry points:
 - Frames: `get_frame_count()`, `get_frame_times()`, `get_frame_times_named(name)`,
   `get_frame_boundaries()`, `get_zones_in_frame(...)`
 - Threads: `get_threads()`, `get_thread_name(tid)`, `get_thread_context_switches(tid)`
+  `get_thread_zone_stats(tid)` is `get_all_zone_stats()` restricted to one thread's zones,
+  so a main-thread cost is not mixed with worker threads. A zone name used at several
+  source locations appears once in both, for its last location.
 - Messages / plots / locks / memory / callstacks: `get_messages()`, `get_plots()`,
   `get_locks()`, `get_memory_events()`, `get_callstack_frames(...)`
+- Plot samples: `get_plot_samples(name, start_ns=0, end_ns=max, max_samples=100000)` returns
+  `(time_ns, value)` pairs, thinned to at most `max_samples`;
+  `get_plot_window_stats(name, start_ns, end_ns)` returns a `PlotSummary`
+  (count/min/max/sum/avg) over just that window. `get_plots()` only
+  summarises the whole trace.
 - Sections: `get_sections()` — timed code sections from
   `TracySectionEnter`/`TracySectionLeave` instrumentation. Returns a list of
-  `{start, end, text}` dicts (start/end in ns).
+  `{category, start, end, text}` dicts (start/end in ns); `category` is the
+  section's named group (multiple unrelated section sets can coexist in one
+  capture).
 - Capture metadata: `get_capture_name()`, `get_capture_program()`,
   `get_first_time()`, `get_last_time()`, `get_resolution()`, `get_host_info()`
+- Readiness: `is_background_done()` — see "Instance lifecycle" below before
+  querying zone/symbol stats right after `load_capture`.
 
 Run `print([m for m in dir(ctx) if not m.startswith('_')])` for the full list.
 
@@ -72,3 +84,40 @@ stats = ctx.get_zone_stats(sid)
 For long-running queries pass `async_mode=True` to `eval`; it returns
 `{task_id, status: "running"}`. Poll with the `task` tool
 (`action="poll", task_id=...`).
+
+## Instance lifecycle
+
+`tracy_mcp.py` runs as a long-lived singleton process shared across every
+MCP client (all VS Code windows), and every `live_connect`/`load_capture`
+instance holds its *entire* trace — zones, messages, callstacks, memory
+events — resident in memory for as long as that process runs. Nothing
+frees it just because your conversation ends.
+
+- `load_capture` returns before zone/symbol statistics finish building — a
+  background thread populates them after the file itself is read. Check
+  `is_background_done()` (or `background_done` in `list_instances`) before
+  relying on `get_all_zone_stats()` and similar stats-based queries; they
+  can return empty or partial results until it's true. For small captures
+  this finishes before you'd notice; for multi-GB ones it can take seconds.
+- Call `unload_capture(instance_id)` as soon as you're done analyzing a
+  capture. Don't rely on automatic eviction as your primary cleanup path —
+  treat it as a backstop for forgotten sessions, not a substitute.
+- `live_connect` caps a live session at `TRACY_MCP_LIVE_MEMORY_LIMIT_MB`
+  (default 8192, override per-call or set 0 to disable) — a long-lived
+  session on a busy target otherwise grows unbounded and can OOM-kill the
+  whole server process. Hitting the cap disconnects that instance cleanly;
+  data collected so far stays queryable and `save_trace`-able.
+- `list_instances` reports `idle_seconds`, `connected`, and `background_done`
+  per instance; use it to spot stale ones before starting a new session,
+  especially if you're about to load several captures for comparison.
+- The server provides three backstops, all configurable via environment
+  variables at startup: it evicts the least-recently-used *evictable*
+  instance (disconnected live sessions, or any loaded file capture — never
+  a still-connected live one) once the instance count reaches
+  `TRACY_MCP_MAX_INSTANCES` (default 4); it drops a disconnected live
+  instance that's sat idle for `TRACY_MCP_DISCONNECTED_TTL_S` (default
+  1800s / 30 min) so a session is still there for analysis right after the
+  target disconnects, but doesn't linger forever if forgotten; and it drops
+  a file-loaded capture that's sat idle for `TRACY_MCP_FILE_IDLE_TTL_S`
+  (default 1800s) — safe to let expire since it's already durably on disk,
+  just `load_capture` it again.

@@ -197,7 +197,7 @@ bool View::DrawCpuData( const TimelineContext& ctx, const std::vector<CpuUsageDr
                         ImGui::EndTooltip();
                         ImGui::PushFont( g_fonts.normal, FontSmall );
 
-                        if( IsMouseClicked( 2 ) )
+                        if( IsMouseClicked( ImGuiMouseButton_Middle ) )
                         {
                             ZoomToRange( t0, t1 );
                         }
@@ -387,13 +387,13 @@ bool View::DrawCpuData( const TimelineContext& ctx, const std::vector<CpuUsageDr
                         ImGui::EndTooltip();
                         ImGui::PushFont( g_fonts.normal, FontSmall );
 
-                        if( local && IsMouseClicked( 0 ) )
+                        if( local && IsMouseClicked( ImGuiMouseButton_Left ) )
                         {
                             auto& item = m_tc.GetItem( m_worker.GetThreadData( thread ) );
                             item.SetVisible( true );
                             item.SetShowFull( true );
                         }
-                        if( IsMouseClicked( 2 ) )
+                        if( IsMouseClicked( ImGuiMouseButton_Middle ) )
                         {
                             ZoomToRange( ev.Start(), end );
                         }
@@ -445,7 +445,7 @@ bool View::DrawCpuData( const TimelineContext& ctx, const std::vector<CpuUsageDr
         offset += sstep;
     }
 
-    if( ImGui::IsMouseHoveringRect( wpos, wpos + ImVec2( w, offset ) ) && IsMouseClickReleased( ImGuiMouseButton_Left ) )
+    if( hover && ImGui::IsMouseHoveringRect( wpos, wpos + ImVec2( w, offset ) ) && IsMouseClickReleased( ImGuiMouseButton_Left ) )
     {
         if( m_drawThreadHighlight != 0 )
         {

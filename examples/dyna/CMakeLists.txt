@@ -10,11 +10,19 @@ set(CMAKE_COLOR_DIAGNOSTICS ON)
 
 include(cmake/CPM.cmake)
 
+if(TRACY_ENABLE)
+  if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    add_compile_options(-fno-omit-frame-pointer)
+  else()
+    message(WARNING "Tracy builds should be RelWithDebInfo!")
+  endif()
+endif()
+
 CPMAddPackage(
   NAME glad
   VERSION 2.0.8
   GIT_REPOSITORY https://github.com/Dav1dde/glad.git
-  GIT_TAG glad2
+  GIT_TAG v2.0.8
 )
 
 add_subdirectory(${glad_SOURCE_DIR}/cmake ${CMAKE_CURRENT_BINARY_DIR}/glad)

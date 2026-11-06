@@ -11,7 +11,7 @@ void View::SetupRanges()
 {
     m_ranges = {{
         { &m_findZone.range, 0x88DD88, ICON_FA_MAGNIFYING_GLASS " Find zone" },
-        { &m_statRange,      0x8888EE, ICON_FA_ARROW_UP_WIDE_SHORT " Statistics" },
+        { &m_statRange,      0x8888EE, ICON_FA_ARROW_UP_WIDE_SHORT " Statistics", "Affects: statistics view, source view" },
         { &m_flameRange,     0x88B5EE, ICON_FA_FIRE_FLAME_CURVED " Flame graph" },
         { &m_waitStackRange, 0xEEB588, ICON_FA_HOURGLASS_HALF " Wait stacks" },
         { &m_memInfo.range,  0x88EEE3, ICON_FA_MEMORY " Memory" },
@@ -52,12 +52,12 @@ void View::DrawRanges()
     {
         if( first ) first = false;
         else ImGui::Separator();
-        DrawRangeEntry( *r.range, r.name, r.color, idx++ );
+        DrawRangeEntry( *r.range, r.name, r.tooltip, r.color, idx++ );
     }
     ImGui::End();
 }
 
-void View::DrawRangeEntry( Range& range, const char* label, uint32_t color, int id )
+void View::DrawRangeEntry( Range& range, const char* label, const char* tooltip, uint32_t color, int id )
 {
     ImGui::PushID( id );
     SmallColorBox( color );
@@ -70,6 +70,7 @@ void View::DrawRangeEntry( Range& range, const char* label, uint32_t color, int 
             range.max = m_vd.zvEnd;
         }
     }
+    if( tooltip ) TooltipIfHovered( tooltip );
     if( range.active )
     {
         TextFocused( ICON_FA_STOPWATCH " Time range:", TimeToStringExact( range.min ) );
@@ -80,7 +81,7 @@ void View::DrawRangeEntry( Range& range, const char* label, uint32_t color, int 
 
         if( ImGui::SmallButton( ICON_FA_MICROSCOPE " Focus" ) ) ZoomToRange( range.min, range.max );
         ImGui::SameLine();
-        if( ImGui::SmallButton( ICON_FA_ARROWS_LEFT_RIGHT_TO_LINE " Limit to view" ) )
+        if( ImGui::SmallButton( "Limit to view" ) )
         {
             range.min = m_vd.zvStart;
             range.max = m_vd.zvEnd;
@@ -88,7 +89,7 @@ void View::DrawRangeEntry( Range& range, const char* label, uint32_t color, int 
         ImGui::SameLine();
         if( ImGui::SmallButton( ICON_FA_NOTE_STICKY " Add annotation" ) ) AddAnnotation( range.min, range.max );
         ImGui::SameLine();
-        if( ImGui::SmallButton( ICON_FA_COPY " Copy from" ) ) ImGui::OpenPopup( label );
+        if( ImGui::SmallButton( ICON_FA_COPY " Copy from…" ) ) ImGui::OpenPopup( label );
         if( ImGui::BeginPopup( label ) )
         {
             if( m_annotations.empty() )
@@ -112,6 +113,13 @@ void View::DrawRangeEntry( Range& range, const char* label, uint32_t color, int 
                 ImGui::EndMenu();
             }
 
+            const auto sel = ListSectionsMenu( m_worker );
+            if( sel.active )
+            {
+                range.min = sel.min;
+                range.max = sel.max;
+            }
+
             int idx = 0;
             for( auto& r : m_ranges )
             {
@@ -133,7 +141,7 @@ void View::DrawRangeEntry( Range& range, const char* label, uint32_t color, int 
 
 void View::HandleRange( Range& range, int64_t timespan, const ImVec2& wpos, float w )
 {
-    if( !IsMouseDown( 0 ) ) range.modMin = range.modMax = false;
+    if( !IsMouseDown( ImGuiMouseButton_Left ) ) range.modMin = range.modMax = false;
     if( !range.active ) return;
     auto& io = ImGui::GetIO();
 
@@ -142,7 +150,7 @@ void View::HandleRange( Range& range, int64_t timespan, const ImVec2& wpos, floa
         const auto nspx = double( timespan ) / w;
         range.min = m_vd.zvStart + ( io.MousePos.x - wpos.x ) * nspx;
         range.hiMin = true;
-        ConsumeMouseEvents( 0 );
+        ConsumeMouseEvents( ImGuiMouseButton_Left );
         ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
         if( range.min > range.max )
         {
@@ -156,7 +164,7 @@ void View::HandleRange( Range& range, int64_t timespan, const ImVec2& wpos, floa
         const auto nspx = double( timespan ) / w;
         range.max = m_vd.zvStart + ( io.MousePos.x - wpos.x ) * nspx;
         range.hiMax = true;
-        ConsumeMouseEvents( 0 );
+        ConsumeMouseEvents( ImGuiMouseButton_Left );
         ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
         if( range.min > range.max )
         {
@@ -173,11 +181,11 @@ void View::HandleRange( Range& range, int64_t timespan, const ImVec2& wpos, floa
         {
             range.hiMin = true;
             ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
-            if( IsMouseClicked( 0 ) )
+            if( IsMouseClicked( ImGuiMouseButton_Left ) )
             {
                 range.modMin = true;
                 range.min = m_vd.zvStart + ( io.MousePos.x - wpos.x ) / pxns;
-                ConsumeMouseEvents( 0 );
+                ConsumeMouseEvents( ImGuiMouseButton_Left );
                 if( range.min > range.max )
                 {
                     std::swap( range.min, range.max );
@@ -193,11 +201,11 @@ void View::HandleRange( Range& range, int64_t timespan, const ImVec2& wpos, floa
             {
                 range.hiMax = true;
                 ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
-                if( IsMouseClicked( 0 ) )
+                if( IsMouseClicked( ImGuiMouseButton_Left ) )
                 {
                     range.modMax = true;
                     range.max = m_vd.zvStart + ( io.MousePos.x - wpos.x ) / pxns;
-                    ConsumeMouseEvents( 0 );
+                    ConsumeMouseEvents( ImGuiMouseButton_Left );
                     if( range.min > range.max )
                     {
                         std::swap( range.min, range.max );

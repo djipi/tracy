@@ -262,7 +262,7 @@ void View::DrawContextSwitchList( const TimelineContext& ctx, const std::vector<
                     }
                     tooltip = true;
 
-                    if( IsMouseClicked( 2 ) )
+                    if( IsMouseClicked( ImGuiMouseButton_Middle ) )
                     {
                         ZoomToRange( prev.End(), ev.WakeupVal() );
                     }
@@ -274,7 +274,7 @@ void View::DrawContextSwitchList( const TimelineContext& ctx, const std::vector<
                     TextFocused( "Thread is", "waking up" );
                     TextFocused( "Scheduling delay:", TimeToString( ev.Start() - ev.WakeupVal() ) );
                     TextFocused( "CPU:", RealToString( ev.Cpu() ) );
-                    if( IsMouseClicked( 2 ) )
+                    if( IsMouseClicked( ImGuiMouseButton_Middle ) )
                     {
                         ZoomToRange( prev.End(), ev.WakeupVal() );
                     }
@@ -289,7 +289,7 @@ void View::DrawContextSwitchList( const TimelineContext& ctx, const std::vector<
                         ImGui::Separator();
                         TextDisabledUnformatted( ICON_FA_HOURGLASS_HALF " Wait stack:" );
                         CallstackTooltipContents( waitStack );
-                        if( ImGui::IsMouseClicked( 0 ) )
+                        if( IsMouseClicked( ImGuiMouseButton_Left ) )
                         {
                             m_callstackView = {
                                 .id = waitStack,
@@ -340,7 +340,7 @@ void View::DrawContextSwitchList( const TimelineContext& ctx, const std::vector<
                     }
                     ImGui::EndTooltip();
 
-                    if( IsMouseClicked( 2 ) )
+                    if( IsMouseClicked( ImGuiMouseButton_Middle ) )
                     {
                         ZoomToRange( ev.Start(), end );
                     }
@@ -357,7 +357,7 @@ void View::DrawContextSwitchList( const TimelineContext& ctx, const std::vector<
                     TextFocused( "Time:", TimeToString( end - ev.Start() ) );
                     ImGui::EndTooltip();
 
-                    if( IsMouseClicked( 2 ) )
+                    if( IsMouseClicked( ImGuiMouseButton_Middle ) )
                     {
                         ZoomToRange( ev.Start(), end );
                     }
@@ -391,7 +391,7 @@ void View::DrawContextSwitchList( const TimelineContext& ctx, const std::vector<
                 }
                 ImGui::EndTooltip();
 
-                if( IsMouseClicked( 2 ) )
+                if( IsMouseClicked( ImGuiMouseButton_Middle ) )
                 {
                     ZoomToRange( ev.Start(), end );
                 }
@@ -411,6 +411,7 @@ void View::DrawWaitStacks()
 
     const auto scale = GetScale();
     ImGui::SetNextWindowSize( ImVec2( 1400 * scale, 500 * scale ), ImGuiCond_FirstUseEver );
+    m_waitStacksConstraint.Constrain();
     ImGui::Begin( "Wait stacks", &m_showWaitStacks );
     if( ImGui::GetCurrentWindowRead()->SkipItems ) { ImGui::End(); return; }
     uint64_t totalCount = 0;
@@ -489,6 +490,7 @@ void View::DrawWaitStacks()
         ToggleButton( ICON_FA_RULER " Limits", m_showRanges );
     }
     ImGui::PopStyleVar();
+    m_waitStacksConstraint.MarkMinWidth();
 
     bool threadsChanged = false;
     auto expand = ImGui::TreeNode( ICON_FA_SHUFFLE " Visible threads:" );
@@ -540,6 +542,7 @@ void View::DrawWaitStacks()
             if( t->ctxSwitchSamples.empty() ) continue;
             float w = ImGui::GetFrameHeight() * 2 + ImGui::CalcTextSize( m_worker.GetThreadName( t->id ) ).x + cntWidth + style.ItemSpacing.x * 3;
             if( crash.thread == t->id ) w += style.ItemSpacing.x + ImGui::CalcTextSize( ICON_FA_SKULL " Crashed" ).x;
+            if( m_worker.IsDeadlockedThread( t->id ) ) w += style.ItemSpacing.x + ImGui::CalcTextSize( ICON_FA_ARROWS_SPIN " Deadlock" ).x;
             if( t->isFiber ) w += style.ItemSpacing.x + ImGui::CalcTextSize( "Fiber" ).x;
             probe = std::max( probe, w );
         }
@@ -572,6 +575,11 @@ void View::DrawWaitStacks()
             {
                 ImGui::SameLine();
                 TextColoredUnformatted( ImVec4( 1.f, 0.2f, 0.2f, 1.f ), ICON_FA_SKULL " Crashed" );
+            }
+            if( m_worker.IsDeadlockedThread( t->id ) )
+            {
+                ImGui::SameLine();
+                TextColoredUnformatted( ImVec4( 1.f, 0.2f, 0.2f, 1.f ), ICON_FA_ARROWS_SPIN " Deadlock" );
             }
             if( t->isFiber )
             {
@@ -636,7 +644,7 @@ void View::DrawWaitStacks()
             PrintStringPercent( buf, 100. * data[m_waitStack]->second / totalCount );
             TextDisabledUnformatted( buf );
             ImGui::Separator();
-            DrawCallstackTable( data[m_waitStack]->first, { .wait = { .time = 1 } } );  // dummy time value to just mark a wait stack
+            DrawCallstackTable( data[m_waitStack]->first, { .wait = { .time = -1 } } );
             break;
         }
         case 1:

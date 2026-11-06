@@ -5,6 +5,7 @@
 #include "TracyPrint.hpp"
 #include "TracyView.hpp"
 #include "tracy_pdqsort.h"
+#include "../public/common/TracyString.hpp"
 #include "../Fonts.hpp"
 
 namespace tracy
@@ -12,6 +13,8 @@ namespace tracy
 
 void View::DrawInfo()
 {
+    if( s_config.achievements && !m_worker.GetAppInfo().empty() ) Achieve( "appInfo" );
+
     const auto scale = GetScale();
     ImGui::SetNextWindowSize( ImVec2( 400 * scale, 650 * scale ), ImGuiCond_FirstUseEver );
     ImGui::Begin( "Trace information", &m_showInfo, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse );
@@ -114,24 +117,27 @@ void View::DrawInfo()
         if( m_worker.AreCallstackSamplesReady() )
         {
             ImGui::SameLine();
-            TextFocused( "+", RealToString( m_worker.GetCallstackParentPayloadCount() ) );
-            TooltipIfHovered( "Parent call stacks for stack samples" );
+            TextFocused( "+", RealToString( m_worker.GetCallstackSyntheticPayloadCount() ) );
+            TooltipIfHovered( "Synthetic call stacks for stack samples" );
         }
         TextFocused( "Call stack frames:", RealToString( m_worker.GetCallstackFrameCount() ) );
         if( m_worker.AreCallstackSamplesReady() )
         {
             ImGui::SameLine();
-            TextFocused( "+", RealToString( m_worker.GetCallstackParentFrameCount() ) );
-            TooltipIfHovered( "Parent call stack frames for stack samples" );
+            TextFocused( "+", RealToString( m_worker.GetCallstackSyntheticFrameCount() ) );
+            TooltipIfHovered( "Synthetic call stack frames for stack samples" );
         }
         TextFocused( "Call stack samples:", RealToString( m_worker.GetCallstackSampleCount() ) );
         TextFocused( "Ghost zones:", RealToString( m_worker.GetGhostZonesCount() ) );
-        TextFocused( "Child sample symbols:", RealToString( m_worker.GetChildSamplesCountSyms() ) );
-        if( ImGui::IsItemHovered() )
+        if( m_worker.AreSymbolSamplesReady() )
         {
-            ImGui::BeginTooltip();
-            TextFocused( "Child samples:", RealToString( m_worker.GetChildSamplesCountFull() ) );
-            ImGui::EndTooltip();
+            TextFocused( "Child sample symbols:", RealToString( m_worker.GetChildSamplesCountSyms() ) );
+            if( ImGui::IsItemHovered() )
+            {
+                ImGui::BeginTooltip();
+                TextFocused( "Child samples:", RealToString( m_worker.GetChildSamplesCountFull() ) );
+                ImGui::EndTooltip();
+            }
         }
         TextFocused( "Context switch samples:", RealToString( m_worker.GetContextSwitchSampleCount() ) );
         TextFocused( "Hardware samples:", RealToString( m_worker.GetHwSampleCount() ) );
@@ -265,6 +271,10 @@ void View::DrawInfo()
                 draw->AddText( dpos, 0xFFFFFFFF, buf );
                 dpos.y += ty;
 
+                const auto ppos = dpos;
+                float packageWidth = 0;
+                dpos.x += margin;
+
                 std::vector<decltype(package->second.begin())> dsort;
                 dsort.reserve( package->second.size() );
                 for( auto it = package->second.begin(); it != package->second.end(); ++it ) dsort.emplace_back( it );
@@ -280,13 +290,14 @@ void View::DrawInfo()
                     const auto coreWidth = inCoreWidth + 2 * margin;
                     const auto inCoreHeight = margin + 2 * small + ty;
                     const auto coreHeight = inCoreHeight + ty;
-                    const auto cpl = std::max( 1, (int)floor( ( remainingWidth - 2 * margin ) / coreWidth ) );
+                    const auto cpl = std::max( 1, (int)floor( ( remainingWidth - 4 * margin ) / coreWidth ) );
                     const auto cl = ( die->second.size() + cpl - 1 ) / cpl;
-                    const auto pw = cpl * coreWidth + 2 * margin;
                     const auto ph = margin + cl * coreHeight;
-                    if( pw > width ) width = pw;
 
-                    draw->AddRect( dpos, dpos + ImVec2( margin + coreWidth * std::min<size_t>( cpl, die->second.size() ), ph ), 0xFFFFFFFF );
+                    const auto dieWidth = margin + coreWidth * std::min<size_t>( cpl, die->second.size() );
+                    if( dieWidth > packageWidth ) packageWidth = dieWidth;
+
+                    draw->AddRect( dpos, dpos + ImVec2( dieWidth, ph ), 0xFFFFFFFF );
 
                     std::vector<decltype(die->second.begin())> csort;
                     csort.reserve( die->second.size() );
@@ -319,6 +330,12 @@ void View::DrawInfo()
                     }
                     dpos.y += ph;
                 }
+
+                dpos.x -= margin;
+                dpos.y += margin;
+                const auto pw = packageWidth + 2 * margin;
+                draw->AddRect( ppos, ImVec2( ppos.x + pw, dpos.y ), 0xFFFFFFFF );
+                if( pw > width ) width = pw;
             }
             ImGui::ItemSize( ImVec2( width, dpos.y - origy ) );
             ImGui::TreePop();
@@ -348,17 +365,17 @@ void View::DrawInfo()
             if( ImGui::Button( ICON_FA_TRASH_CAN ) ) remove = idx;
             ImGui::SameLine();
             char tmp[1024];
-            strncpy( tmp, v.pattern.c_str(), 1024 );
+            strzcpy( tmp, v.pattern.c_str(), sizeof( tmp ) );
             ImGui::SetNextItemWidth( -1 );
-            if( ImGui::InputTextWithHint( "##pattern", "Regex pattern", tmp, 1024 ) )
+            if( ImGui::InputTextWithHint( "##pattern", "Regex pattern", tmp, sizeof( tmp ) ) )
             {
                 v.pattern.assign( tmp );
                 changed = true;
             }
             ImGui::NextColumn();
-            strncpy( tmp, v.target.c_str(), 1024 );
+            strzcpy( tmp, v.target.c_str(), sizeof( tmp ) );
             ImGui::SetNextItemWidth( -1 );
-            if( ImGui::InputTextWithHint( "##replacement", "Regex replacement", tmp, 1024 ) ) v.target.assign( tmp );
+            if( ImGui::InputTextWithHint( "##replacement", "Regex replacement", tmp, sizeof( tmp ) ) ) v.target.assign( tmp );
             ImGui::PopID();
             ImGui::NextColumn();
             idx++;
@@ -480,6 +497,27 @@ void View::DrawInfo()
             {
                 CallstackTooltip( crash.callstack );
             }
+        }
+    }
+
+    const auto& dgroups = m_worker.GetDeadlockGroups();
+    const auto& dmembers = m_worker.GetDeadlockMembers();
+    if( !dgroups.empty() )
+    {
+        ImGui::Separator();
+        TextColoredUnformatted( ImVec4( 1.f, 0.2f, 0.2f, 1.f ), ICON_FA_ARROWS_SPIN " Deadlock detected " ICON_FA_ARROWS_SPIN );
+        for( size_t gi = 0; gi < dgroups.size(); gi++ )
+        {
+            const auto& dlk = dgroups[gi];
+            ImGui::PushID( gi );
+            ImGui::Separator();
+            TextFocused( "Cycle closed at:", TimeToString( dlk.time ) );
+            DrawDeadlockMembers( dlk, dmembers );
+            if( ImGui::Button( ICON_FA_MICROSCOPE " Focus" ) )
+            {
+                CenterAtTime( dlk.time );
+            }
+            ImGui::PopID();
         }
     }
 

@@ -23,16 +23,16 @@ void View::HandleTimelineMouse( int64_t timespan, const ImVec2& wpos, float w )
 
     const auto nspx = double( timespan ) / w;
 
-    if( IsMouseClicked( 0 ) )
+    if( IsMouseClicked( ImGuiMouseButton_Left ) )
     {
         m_highlight.active = true;
         m_highlight.start = m_highlight.end = m_vd.zvStart + ( io.MousePos.x - wpos.x ) * nspx;
     }
-    else if( IsMouseDragging( 0 ) )
+    else if( IsMouseDragging( ImGuiMouseButton_Left ) )
     {
         m_highlight.end = m_vd.zvStart + ( io.MousePos.x - wpos.x ) * nspx;
     }
-    else if( m_highlight.active && !IsMouseDown( 0 ) )
+    else if( m_highlight.active && !IsMouseDown( ImGuiMouseButton_Left ) )
     {
         if( ImGui::GetIO().KeyCtrl && m_highlight.start != m_highlight.end )
         {
@@ -41,21 +41,23 @@ void View::HandleTimelineMouse( int64_t timespan, const ImVec2& wpos, float w )
         m_highlight.active = false;
     }
 
-    if( IsMouseClicked( 2 ) )
+    if( IsMouseClicked( ImGuiMouseButton_Middle ) )
     {
         m_highlightZoom.active = true;
         m_highlightZoom.start = m_highlightZoom.end = m_vd.zvStart + ( io.MousePos.x - wpos.x ) * nspx;
     }
-    else if( IsMouseDragging( 2 ) )
+    else if( IsMouseDragging( ImGuiMouseButton_Middle ) )
     {
         m_highlightZoom.end = m_vd.zvStart + ( io.MousePos.x - wpos.x ) * nspx;
     }
-    else if( m_highlightZoom.active && !IsMouseDown( 2 )  )
+    else if( m_highlightZoom.active && !IsMouseDown( ImGuiMouseButton_Middle )  )
     {
         if( m_highlightZoom.start != m_highlightZoom.end )
         {
             const auto s = std::min( m_highlightZoom.start, m_highlightZoom.end );
             const auto e = std::max( m_highlightZoom.start, m_highlightZoom.end );
+
+            if( s_config.achievements ) Achieve( "navigate" );
 
             // ZoomToRange disables m_highlightZoom.active
             if( io.KeyCtrl )
@@ -88,13 +90,13 @@ void View::HandleTimelineMouse( int64_t timespan, const ImVec2& wpos, float w )
     }
 
     const bool wheel_scroll = abs( io.MouseWheelH ) > abs( io.MouseWheel );
-    if( IsMouseDragging( 1 ) || wheel_scroll )
+    if( IsMouseDragging( ImGuiMouseButton_Right ) || wheel_scroll )
     {
         m_viewMode = ViewMode::Paused;
         m_viewModeHeuristicTry = false;
         m_zoomAnim.active = false;
         if( !m_playback.pause && m_playback.sync ) m_playback.pause = true;
-        const auto delta = GetMouseDragDelta( 1 );
+        const auto delta = GetMouseDragDelta( ImGuiMouseButton_Right );
         m_yDelta = delta.y;
         const auto hwheel_delta = io.MouseWheelH * 50.f * m_horizontalScrollMultiplier;
         const auto dpx = int64_t( (delta.x * nspx) + (hwheel_delta * nspx));
@@ -227,6 +229,7 @@ void View::HandleTimelineKeyboard( int64_t timespan, const ImVec2& wpos, float w
 
     if( anyDeltaApplied )
     {
+        if( s_config.achievements ) Achieve( "navigate" );
         if( m_viewMode == ViewMode::LastFrames ) m_viewMode = ViewMode::LastRange;
         if( nextTimelineRangeStart > nextTimelineRangeEnd ) return;
 
@@ -277,6 +280,7 @@ void View::DrawTimeline()
 
     auto draw = ImGui::GetWindowDrawList();
     const auto w = ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize;
+    if( w <= 0.f ) return;
     const auto timespan = m_vd.zvEnd - m_vd.zvStart;
     auto pxns = w / double( timespan );
 
@@ -292,7 +296,7 @@ void View::DrawTimeline()
             v->range.StartFrame();
             HandleRange( v->range, timespan, ImGui::GetCursorScreenPos(), w );
         }
-        if( IsMouseClicked( 0 ) )
+        if( IsMouseClicked( ImGuiMouseButton_Left ) )
         {
             const auto ty = ImGui::GetTextLineHeight();
             for( auto& ann : m_annotations )
@@ -303,7 +307,7 @@ void View::DrawTimeline()
                 if( ImGui::IsMouseHoveringRect( linepos + ImVec2( aMin, lineh - ty * 1.5f ), linepos + ImVec2( aMax, lineh ) ) )
                 {
                     m_selectedAnnotation = ann.get();
-                    ConsumeMouseEvents( 0 );
+                    ConsumeMouseEvents( ImGuiMouseButton_Left );
                     break;
                 }
             }
@@ -349,18 +353,11 @@ void View::DrawTimeline()
     draw->AddLineH( winpos.x, winpos.x + ImGui::GetContentRegionAvail().x + 1, yMin - 1, 0x0FFFFFFF );
 
     ImGui::SetNextWindowContentSize( ImVec2( 0, m_tc.GetHeight() ) );
-    ImGui::BeginChild( "##zoneWin", ImVec2( ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y ), false, ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_NoScrollWithMouse );
-
-    const auto verticallyCenterTimeline = true;
+    ImGui::BeginChild( "##zoneWin", ImVec2( ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y ), ImGuiChildFlags_None, ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_NoScrollWithMouse );
 
     if( m_yDelta != 0 )
     {
         auto& io = ImGui::GetIO();
-        if( !verticallyCenterTimeline )
-        {
-            auto y = ImGui::GetScrollY();
-            ImGui::SetScrollY( y - m_yDelta );
-        }
         io.MouseClickedPos[1].y = io.MousePos.y;
     }
 
@@ -403,7 +400,7 @@ void View::DrawTimeline()
         }
     }
 
-    const auto vcenter = verticallyCenterTimeline && drawMouseLine && m_viewMode == ViewMode::Paused;
+    const auto vcenter = drawMouseLine && m_viewMode == ViewMode::Paused;
     m_tc.End( pxns, wpos, hover, vcenter, yMin, yMax );
     ImGui::EndChild();
 

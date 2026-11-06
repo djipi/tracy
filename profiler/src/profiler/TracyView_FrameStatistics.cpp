@@ -13,7 +13,8 @@ void View::DrawFrameStatistics()
 {
     const auto scale = GetScale();
     ImGui::SetNextWindowSize( ImVec2( 700 * scale, 500 * scale ), ImGuiCond_FirstUseEver );
-    ImGui::Begin( "Frame statistics", &m_showFrameStatistics );
+    m_frameStatsConstraint.Constrain();
+    ImGui::Begin( "Frame statistics", &m_showFrameStatistics, ImGuiWindowFlags_NoScrollbar );
 
     auto fsz = m_worker.GetFullFrameCount( *m_frames );
     if( fsz != 0 )
@@ -32,6 +33,7 @@ void View::DrawFrameStatistics()
                 if( ImGui::Selectable( GetFrameSetName( *fd ), isSelected ) )
                 {
                     m_frames = fd;
+                    if( s_config.achievements && fd->name != 0 ) Achieve( "addFrameSets" );
                     fsz = m_worker.GetFullFrameCount( *m_frames );
                 }
                 if( isSelected )
@@ -205,6 +207,7 @@ void View::DrawFrameStatistics()
         ImGui::SameLine();
         ImGui::TextDisabled( "(%.2f%% of profile time span)", m_frameSortData.total / float( profileSpan ) * 100.f );
         ImGui::Separator();
+        ImGui::BeginChild( "##frameStats" );
 
         const auto ty = ImGui::GetTextLineHeight();
 
@@ -404,6 +407,7 @@ void View::DrawFrameStatistics()
                     ImGui::SameLine();
                     ImGui::TextDisabled( "(%.2f%%)", 100.f * m_frameSortData.sd / m_frameSortData.average );
                     TooltipIfHovered( "Coefficient of variation" );
+                    m_frameStatsConstraint.MarkMinWidth();
 
                     constexpr auto PercentileLine = []( const char* label, int64_t t ) {
                         TextFocused( label, TimeToString( t ) );
@@ -429,6 +433,7 @@ void View::DrawFrameStatistics()
                     ImGui::Spacing();
                     ImGui::SameLine();
                     PercentileLine( "P99.9:", m_frameSortData.p99_9 );
+                    m_frameStatsConstraint.MarkMinWidth();
 
                     ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 0, 0 ) );
                     ImGui::Checkbox( "###draw1", &m_frameSortData.drawAvgMed );
@@ -637,7 +642,16 @@ void View::DrawFrameStatistics()
                         ImGui::SameLine();
                         ImGui::Text( "%s - %s", TimeToString( t0 ), TimeToString( t1 ) );
                         ImGui::SameLine();
-                        ImGui::TextDisabled( "(%s FPS - %s FPS)", RealToString( round( 1000000000.0 / t0 ) ), RealToString( round( 1000000000.0 / t1 ) ) );
+                        const auto fps0 = round( 1000000000.0 / t0 );
+                        const auto fps1 = round( 1000000000.0 / t1 );
+                        if( fps0 == fps1 )
+                        {
+                            ImGui::TextDisabled( "(%s FPS)", RealToString( fps0 ) );
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled( "(%s FPS - %s FPS)", RealToString( fps0 ), RealToString( fps1 ) );
+                        }
                         TextFocused( "Count:", RealToString( bins[bin] ) );
                         ImGui::EndTooltip();
                     }
@@ -664,6 +678,7 @@ void View::DrawFrameStatistics()
                 }
             }
         }
+        ImGui::EndChild();
     }
     ImGui::End();
 }

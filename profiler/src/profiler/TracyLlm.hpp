@@ -16,11 +16,13 @@
 namespace tracy
 {
 
+constexpr int DefaultToolReplyLimit = 48 * 1024;
+
 class TracyLlmApi;
 class TracyLlmChat;
 class TracyLlmTools;
-class TracyManualData;
 class View;
+class WindowConstraints;
 class Worker;
 
 struct LlmSkill
@@ -51,12 +53,12 @@ class TracyLlm
     };
 
 public:
-    TracyLlm( Worker& worker, View& view, const TracyManualData& manual );
+    TracyLlm( Worker& worker, View& view );
     ~TracyLlm();
 
     [[nodiscard]] bool IsBusy() const { std::lock_guard lock( m_jobsLock ); return m_busy; }
 
-    void Draw();
+    void Draw( WindowConstraints& constraints );
 
     bool m_show = false;
 
@@ -89,6 +91,7 @@ private:
     bool OnResponse( const nlohmann::json& json );
 
     void AddSkill( std::string&& name, std::string&& description, const std::shared_ptr<EmbedData>& content );
+    void AddPersonality( const std::shared_ptr<EmbedData>& content );
 
     std::unique_ptr<TracyLlmApi> m_api;
     std::unique_ptr<TracyLlmChat> m_chatUi;
@@ -113,6 +116,7 @@ private:
     float m_temperature = 1.0f;
     bool m_setTemperature = false;
     bool m_allThinkingRegions = false;
+    int m_personalityPrompt = -1;
 
     char* m_input;
     char* m_apiInput;
@@ -122,6 +126,7 @@ private:
     std::string m_suggestion;
 
     std::vector<LlmSkill> m_skills;
+    std::vector<std::string> m_personality;
     std::shared_ptr<EmbedData> m_systemPrompt;
     nlohmann::json m_toolsJson;
 

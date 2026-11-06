@@ -37,7 +37,6 @@ public:
 #else
 
 #include <atomic>
-#include <assert.h>
 #include <stdlib.h>
 #ifdef TRACY_OPENGL_AUTO_CALIBRATION
 #  include <chrono>
@@ -48,6 +47,7 @@ public:
 #include "../client/TracyCallstack.hpp"
 #include "../common/TracyAlign.hpp"
 #include "../common/TracyAlloc.hpp"
+#include "../common/TracyAssert.hpp"
 
 #if !defined GL_TIMESTAMP && defined GL_TIMESTAMP_EXT
 #  define GL_TIMESTAMP GL_TIMESTAMP_EXT
@@ -72,29 +72,29 @@ public:
 #  define GL_QUERY_RESULT_NO_WAIT 0x9194
 #endif
 
-#define TracyGpuContext tracy::GetGpuCtx().ptr = (tracy::GpuCtx*)tracy::tracy_malloc( sizeof( tracy::GpuCtx ) ); new(tracy::GetGpuCtx().ptr) tracy::GpuCtx;
-#define TracyGpuContextName( name, size ) tracy::GetGpuCtx().ptr->Name( name, size );
+#define TracyGpuContext tracy::GetGpuCtx().ptr = (tracy::GpuCtx*)tracy::tracy_malloc( sizeof( tracy::GpuCtx ) ); new(tracy::GetGpuCtx().ptr) tracy::GpuCtx
+#define TracyGpuContextName( name, size ) tracy::GetGpuCtx().ptr->Name( name, size )
 #if defined TRACY_HAS_CALLSTACK && defined TRACY_CALLSTACK
-#  define TracyGpuNamedZone( varname, name, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, 0 }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), TRACY_CALLSTACK, active );
-#  define TracyGpuNamedZoneC( varname, name, color, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, color }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), TRACY_CALLSTACK, active );
+#  define TracyGpuNamedZone( varname, name, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, 0 }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), TRACY_CALLSTACK, active )
+#  define TracyGpuNamedZoneC( varname, name, color, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, color }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), TRACY_CALLSTACK, active )
 #  define TracyGpuZone( name ) TracyGpuNamedZoneS( ___tracy_gpu_zone, name, TRACY_CALLSTACK, true )
 #  define TracyGpuZoneC( name, color ) TracyGpuNamedZoneCS( ___tracy_gpu_zone, name, color, TRACY_CALLSTACK, true )
-#  define TracyGpuZoneTransient( varname, name, active ) tracy::GpuCtxScope varname( TracyLine, TracyFile, strlen( TracyFile ), TracyFunction, strlen( TracyFunction ), name, strlen( name ), TRACY_CALLSTACK, active );
+#  define TracyGpuZoneTransient( varname, name, active ) tracy::GpuCtxScope varname( TracyLine, TracyFile, strlen( TracyFile ), TracyFunction, strlen( TracyFunction ), name, strlen( name ), TRACY_CALLSTACK, active )
 #else
-#  define TracyGpuNamedZone( varname, name, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, 0 }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), active );
-#  define TracyGpuNamedZoneC( varname, name, color, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, color }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), active );
+#  define TracyGpuNamedZone( varname, name, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, 0 }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), active )
+#  define TracyGpuNamedZoneC( varname, name, color, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, color }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), active )
 #  define TracyGpuZone( name ) TracyGpuNamedZone( ___tracy_gpu_zone, name, true )
 #  define TracyGpuZoneC( name, color ) TracyGpuNamedZoneC( ___tracy_gpu_zone, name, color, true )
-#  define TracyGpuZoneTransient( varname, name, active ) tracy::GpuCtxScope varname( TracyLine, TracyFile, strlen( TracyFile ), TracyFunction, strlen( TracyFunction ), name, strlen( name ), active );
+#  define TracyGpuZoneTransient( varname, name, active ) tracy::GpuCtxScope varname( TracyLine, TracyFile, strlen( TracyFile ), TracyFunction, strlen( TracyFunction ), name, strlen( name ), active )
 #endif
-#define TracyGpuCollect tracy::GetGpuCtx().ptr->Collect();
+#define TracyGpuCollect tracy::GetGpuCtx().ptr->Collect()
 
 #ifdef TRACY_HAS_CALLSTACK
-#  define TracyGpuNamedZoneS( varname, name, depth, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, 0 }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), depth, active );
-#  define TracyGpuNamedZoneCS( varname, name, color, depth, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, color }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), depth, active );
+#  define TracyGpuNamedZoneS( varname, name, depth, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, 0 }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), depth, active )
+#  define TracyGpuNamedZoneCS( varname, name, color, depth, active ) static constexpr tracy::SourceLocationData TracyConcat(__tracy_gpu_source_location,TracyLine) { name, TracyFunction,  TracyFile, (uint32_t)TracyLine, color }; tracy::GpuCtxScope varname( &TracyConcat(__tracy_gpu_source_location,TracyLine), depth, active )
 #  define TracyGpuZoneS( name, depth ) TracyGpuNamedZoneS( ___tracy_gpu_zone, name, depth, true )
 #  define TracyGpuZoneCS( name, color, depth ) TracyGpuNamedZoneCS( ___tracy_gpu_zone, name, color, depth, true )
-#  define TracyGpuZoneTransientS( varname, name, depth, active ) tracy::GpuCtxScope varname( TracyLine, TracyFile, strlen( TracyFile ), TracyFunction, strlen( TracyFunction ), name, strlen( name ), depth, active );
+#  define TracyGpuZoneTransientS( varname, name, depth, active ) tracy::GpuCtxScope varname( TracyLine, TracyFile, strlen( TracyFile ), TracyFunction, strlen( TracyFunction ), name, strlen( name ), depth, active )
 #else
 #  define TracyGpuNamedZoneS( varname, name, depth, active ) TracyGpuNamedZone( varname, name, active )
 #  define TracyGpuNamedZoneCS( varname, name, color, depth, active ) TracyGpuNamedZoneC( varname, name, color, active )
@@ -114,14 +114,14 @@ class GpuCtx
 
 public:
     GpuCtx()
-        : m_context( GetGpuCtxCounter().fetch_add( 1, std::memory_order_relaxed ) )
+        : m_context( NextGpuContextId() )
         , m_head( 0 )
         , m_tail( 0 )
         , m_supportsQueryBufferObject( false )
     {
         ZoneScopedC( Color::Red4 );
 
-        assert( m_context != 255 );
+        TRACY_ASSERT( m_context != InvalidGpuContextId );
 
         if( !CheckFeature( "GL_ARB_timer_query" ) && !CheckFeature( "GL_EXT_disjoint_timer_query" ) )
         {
@@ -146,7 +146,7 @@ public:
             Profiler::LogString( MessageSourceType::Tracy, MessageSeverity::Warning, Color::Tomato, 0,
                 "OpenGL driver does not implement GL_TIMESTAMP precision." );
         }
-        assert( bits > 0 );
+        TRACY_ASSERT( bits > 0 );
 
         int64_t tgpu;
         glGetInteger64v( GL_TIMESTAMP, &tgpu );
@@ -169,11 +169,11 @@ public:
         MemWrite( &item->gpuNewContext.gpuTime, tgpu );
         MemWrite( &item->gpuNewContext.thread, thread );
         MemWrite( &item->gpuNewContext.period, period );
-        MemWrite( &item->gpuNewContext.context, m_context );
+        MemWrite( &item->gpuNewContext.context, uint8_t( m_context ) );
 #ifdef TRACY_OPENGL_AUTO_CALIBRATION
         MemWrite( &item->gpuNewContext.flags, GpuContextFlags( GpuContextCalibration ) );
 #else
-        MemWrite( &item->gpuNewContext.flags, GpuContextFlags( 0 ) );
+        MemWrite( &item->gpuNewContext.flags, GpuContextNone );
 #endif
         MemWrite( &item->gpuNewContext.type, GpuContextType::OpenGl );
 
@@ -190,7 +190,7 @@ public:
         memcpy( ptr, name, len );
 
         TracyLfqPrepare( QueueType::GpuContextName );
-        MemWrite( &item->gpuContextNameFat.context, m_context );
+        MemWrite( &item->gpuContextNameFat.context, uint8_t( m_context ) );
         MemWrite( &item->gpuContextNameFat.ptr, (uint64_t)ptr );
         MemWrite( &item->gpuContextNameFat.size, len );
 #ifdef TRACY_ON_DEMAND
@@ -227,7 +227,7 @@ public:
             TracyLfqPrepare( QueueType::GpuTime );
             MemWrite( &item->gpuTime.gpuTime, (int64_t)time );
             MemWrite( &item->gpuTime.queryId, (uint16_t)m_tail );
-            MemWrite( &item->gpuTime.context, m_context );
+            MemWrite( &item->gpuTime.context, uint8_t( m_context ) );
             TracyLfqCommit;
 
             m_tail = ( m_tail + 1 ) % QueryCount;
@@ -311,7 +311,7 @@ private:
         MemWrite( &item->gpuCalibration.gpuTime, tgpu );
         MemWrite( &item->gpuCalibration.cpuTime, refCpu );
         MemWrite( &item->gpuCalibration.cpuDelta, delta );
-        MemWrite( &item->gpuCalibration.context, m_context );
+        MemWrite( &item->gpuCalibration.context, uint8_t( m_context ) );
         TracyLfqCommit;
     }
 #endif
@@ -320,7 +320,7 @@ private:
     {
         const auto id = m_head;
         m_head = ( m_head + 1 ) % QueryCount;
-        assert( m_head != m_tail );
+        TRACY_ASSERT( m_head != m_tail );
         return id;
     }
 
@@ -329,13 +329,13 @@ private:
         return m_query[id];
     }
 
-    tracy_force_inline uint8_t GetId() const
+    tracy_force_inline int32_t GetId() const
     {
         return m_context;
     }
 
     unsigned int m_query[QueryCount];
-    uint8_t m_context;
+    int32_t m_context;
 
     unsigned int m_head;
     unsigned int m_tail;
@@ -353,6 +353,7 @@ public:
     tracy_force_inline GpuCtxScope( const SourceLocationData* srcloc, bool is_active )
 #ifdef TRACY_ON_DEMAND
         : m_active( is_active && GetProfiler().IsConnected() )
+        , m_connectionId( GetProfiler().ConnectionId() )
 #else
         : m_active( is_active )
 #endif
@@ -366,7 +367,7 @@ public:
         MemWrite( &item->gpuZoneBegin.cpuTime, Profiler::GetTime() );
         memset( &item->gpuZoneBegin.thread, 0, sizeof( item->gpuZoneBegin.thread ) );
         MemWrite( &item->gpuZoneBegin.queryId, uint16_t( queryId ) );
-        MemWrite( &item->gpuZoneBegin.context, GetGpuCtx().ptr->GetId() );
+        MemWrite( &item->gpuZoneBegin.context, uint8_t( GetGpuCtx().ptr->GetId() ) );
         MemWrite( &item->gpuZoneBegin.srcloc, (uint64_t)srcloc );
         TracyLfqCommit;
     }
@@ -374,6 +375,7 @@ public:
     tracy_force_inline GpuCtxScope( const SourceLocationData* srcloc, int32_t depth, bool is_active )
 #ifdef TRACY_ON_DEMAND
         : m_active( is_active && GetProfiler().IsConnected() )
+        , m_connectionId( GetProfiler().ConnectionId() )
 #else
         : m_active( is_active )
 #endif
@@ -393,7 +395,7 @@ public:
 #endif
         MemWrite( &item->gpuZoneBegin.cpuTime, Profiler::GetTime() );
         MemWrite( &item->gpuZoneBegin.queryId, uint16_t( queryId ) );
-        MemWrite( &item->gpuZoneBegin.context, GetGpuCtx().ptr->GetId() );
+        MemWrite( &item->gpuZoneBegin.context, uint8_t( GetGpuCtx().ptr->GetId() ) );
         MemWrite( &item->gpuZoneBegin.srcloc, (uint64_t)srcloc );
         TracyLfqCommit;
     }
@@ -401,6 +403,7 @@ public:
     tracy_force_inline GpuCtxScope( uint32_t line, const char* source, size_t sourceSz, const char* function, size_t functionSz, const char* name, size_t nameSz, bool is_active )
 #ifdef TRACY_ON_DEMAND
         : m_active( is_active && GetProfiler().IsConnected() )
+        , m_connectionId( GetProfiler().ConnectionId() )
 #else
         : m_active( is_active )
 #endif
@@ -415,7 +418,7 @@ public:
         MemWrite( &item->gpuZoneBegin.cpuTime, Profiler::GetTime() );
         memset( &item->gpuZoneBegin.thread, 0, sizeof( item->gpuZoneBegin.thread ) );
         MemWrite( &item->gpuZoneBegin.queryId, uint16_t( queryId ) );
-        MemWrite( &item->gpuZoneBegin.context, GetGpuCtx().ptr->GetId() );
+        MemWrite( &item->gpuZoneBegin.context, uint8_t( GetGpuCtx().ptr->GetId() ) );
         MemWrite( &item->gpuZoneBegin.srcloc, (uint64_t)srcloc );
         TracyLfqCommit;
     }
@@ -423,6 +426,7 @@ public:
     tracy_force_inline GpuCtxScope( uint32_t line, const char* source, size_t sourceSz, const char* function, size_t functionSz, const char* name, size_t nameSz, int32_t depth, bool is_active )
 #ifdef TRACY_ON_DEMAND
         : m_active( is_active && GetProfiler().IsConnected() )
+        , m_connectionId( GetProfiler().ConnectionId() )
 #else
         : m_active( is_active )
 #endif
@@ -443,7 +447,7 @@ public:
         const auto srcloc = Profiler::AllocSourceLocation( line, source, sourceSz, function, functionSz, name, nameSz );
         MemWrite( &item->gpuZoneBegin.cpuTime, Profiler::GetTime() );
         MemWrite( &item->gpuZoneBegin.queryId, uint16_t( queryId ) );
-        MemWrite( &item->gpuZoneBegin.context, GetGpuCtx().ptr->GetId() );
+        MemWrite( &item->gpuZoneBegin.context, uint8_t( GetGpuCtx().ptr->GetId() ) );
         MemWrite( &item->gpuZoneBegin.srcloc, (uint64_t)srcloc );
         TracyLfqCommit;
     }
@@ -455,16 +459,23 @@ public:
         const auto queryId = GetGpuCtx().ptr->NextQueryId();
         glQueryCounter( GetGpuCtx().ptr->TranslateOpenGlQueryId( queryId ), GL_TIMESTAMP );
 
+#ifdef TRACY_ON_DEMAND
+        if( GetProfiler().ConnectionId() != m_connectionId ) return;
+#endif
         TracyLfqPrepare( QueueType::GpuZoneEnd );
         MemWrite( &item->gpuZoneEnd.cpuTime, Profiler::GetTime() );
         memset( &item->gpuZoneEnd.thread, 0, sizeof( item->gpuZoneEnd.thread ) );
         MemWrite( &item->gpuZoneEnd.queryId, uint16_t( queryId ) );
-        MemWrite( &item->gpuZoneEnd.context, GetGpuCtx().ptr->GetId() );
+        MemWrite( &item->gpuZoneEnd.context, uint8_t( GetGpuCtx().ptr->GetId() ) );
         TracyLfqCommit;
     }
 
 private:
     const bool m_active;
+
+#ifdef TRACY_ON_DEMAND
+    uint64_t m_connectionId = 0;
+#endif
 };
 
 }

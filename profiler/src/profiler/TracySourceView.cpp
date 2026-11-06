@@ -4,7 +4,7 @@
 #include <sstream>
 #include <stdio.h>
 
-#include "imgui.h"
+#include "imgui_internal.h"
 #include "TracyCharUtil.hpp"
 #include "TracyColor.hpp"
 #include "TracyConfig.hpp"
@@ -565,7 +565,7 @@ bool SourceView::Disassemble( uint64_t symAddr, const Worker& worker )
     return !m_asm.empty();
 }
 
-void SourceView::Render( Worker& worker, View& view )
+void SourceView::Render( Worker& worker, View& view, WindowConstraints& constraints )
 {
     m_highlightAddr.Decay( 0 );
     m_hoveredLine.Decay( 0 );
@@ -608,6 +608,7 @@ void SourceView::Render( Worker& worker, View& view )
             TextColoredUnformatted( ImVec4( 0.4f, 0.8f, 0.4f, 1.f ), ICON_FA_DATABASE );
             ImGui::SameLine();
             ImGui::TextUnformatted( "Source file cached during profiling run" );
+            constraints.MarkMinWidth();
         }
         else
         {
@@ -616,20 +617,21 @@ void SourceView::Render( Worker& worker, View& view )
             TextColoredUnformatted( ImVec4( 1.f, 0.3f, 0.3f, 1.f ), "The source file contents might not reflect the actual profiled code!" );
             ImGui::SameLine();
             TextColoredUnformatted( ImVec4( 1.f, 1.f, 0.2f, 1.f ), ICON_FA_TRIANGLE_EXCLAMATION );
+            constraints.MarkMinWidth();
         }
 
         RenderSimpleSourceView();
     }
     else
     {
-        RenderSymbolView( worker, view );
+        RenderSymbolView( worker, view, constraints );
     }
 }
 
 void SourceView::RenderSimpleSourceView()
 {
     ImGui::SetNextWindowContentSize( ImVec2( m_srcWidth, 0 ) );
-    ImGui::BeginChild( "##sourceView", ImVec2( 0, 0 ), true, ImGuiWindowFlags_HorizontalScrollbar );
+    ImGui::BeginChild( "##sourceView", ImVec2( 0, 0 ), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar );
     SetFont();
 
     auto& lines = m_source.get();
@@ -678,7 +680,7 @@ void SourceView::RenderSimpleSourceView()
     ImGui::EndChild();
 }
 
-void SourceView::RenderSymbolView( Worker& worker, View& view )
+void SourceView::RenderSymbolView( Worker& worker, View& view, WindowConstraints& constraints )
 {
     assert( m_symAddr != 0 );
 
@@ -761,9 +763,16 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
             ImGui::TextDisabled( "(+%s inlined functions)", RealToString( inlineCount ) );
         }
     }
-    ImGui::SameLine();
-    ImGui::AlignTextToFramePadding();
-    if( ImGui::SmallButton( ICON_FA_ARROW_DOWN_SHORT_WIDE " Entry stacks" ) ) view.ShowSampleParents( m_symAddr, !m_calcInlineStats );
+    if( worker.AreCallstackSamplesReady() )
+    {
+        const auto stats = worker.GetSymbolStats( m_symAddr );
+        if( stats && !stats->wasReached.empty() && worker.GetSymbolData( m_symAddr ) )
+        {
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            if( ImGui::SmallButton( ICON_FA_ARROW_DOWN_SHORT_WIDE " Entry stacks" ) ) view.ShowSampleParents( m_symAddr, !m_calcInlineStats );
+        }
+    }
     if( inlineList )
     {
         if( m_calcInlineStats )
@@ -982,6 +991,8 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
         ImGui::RadioButton( "Assembly", &m_displayMode, DisplayAsm );
     }
 
+    if( s_config.achievements && ( m_displayMode == DisplayAsm || m_displayMode == DisplayMixed ) ) view.Achieve( "readAssembly" );
+
     AddrStatData as;
     if( m_cost == CostType::SampleCount )
     {
@@ -1010,6 +1021,10 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
     {
         GatherIpHwStats( as, worker, view, m_cost );
     }
+    // The local and ext maxima can occur on different addresses, so the maximum of the
+    // sums has to be tracked separately for the child calls display.
+    for( auto& v : as.ipCountSrc ) as.ipMaxSrcSum = std::max( as.ipMaxSrcSum, v.second.local + v.second.ext );
+    for( auto& v : as.ipCountAsm ) as.ipMaxAsmSum = std::max( as.ipMaxAsmSum, v.second.local + v.second.ext );
     if( !m_calcInlineStats )
     {
         as.ipTotalSrc = as.ipTotalAsm;
@@ -1019,7 +1034,7 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
         CountHwStats( as, worker, view );
     }
     const auto samplesReady = worker.AreSymbolSamplesReady();
-    if( ( as.ipTotalAsm.local + as.ipTotalAsm.ext ) > 0 || ( range.active && worker.GetSamplesForSymbol( m_baseAddr ) ) )
+    if( ( as.ipTotalAsm.local + as.ipTotalAsm.ext ) > 0 || ( range.active && samplesReady && worker.GetSamplesForSymbol( m_baseAddr ) ) )
     {
         ImGui::SameLine();
         ImGui::Spacing();
@@ -1057,6 +1072,7 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
                         {
                             m_cost = CostType::BranchMiss;
                         }
+                        if( s_config.achievements && m_cost != CostType::SampleCount ) view.Achieve( "hwCounters" );
                     }
                     if( (CostType)idx == s_costSeparateAfter ) ImGui::Separator();
                     idx++;
@@ -1175,6 +1191,7 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
     {
         m_cost = CostType::SampleCount;
     }
+    constraints.MarkMinWidth();
 
     ImGui::PopStyleVar();
     ImGui::Separator();
@@ -1198,6 +1215,9 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
             vec.reserve( map.size() );
             for( auto& v : map ) vec.emplace_back( ChildStat { v.first, v.second } );
             pdqsort_branchless( vec.begin(), vec.end(), []( const auto& lhs, const auto& rhs ) { return lhs.count > rhs.count; } );
+
+            ImGui::SetNextWindowFlags( ImGuiWindowFlags_AlwaysVerticalScrollbar, true );
+
             if( ImGui::BeginTable( "##ccd", 7, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY ) )
             {
                 ImGui::TableSetupScrollFreeze( 0, 1 );
@@ -1271,7 +1291,7 @@ void SourceView::RenderSymbolView( Worker& worker, View& view )
                                 UnsetFont();
                                 ImGui::EndTooltip();
                             }
-                            if( ImGui::IsMouseClicked( 1 ) )
+                            if( ImGui::IsMouseClicked( ImGuiMouseButton_Right ) )
                             {
                                 OpenSymbol( fileName, sd->line, v.addr, v.addr, worker, view );
                             }
@@ -1438,7 +1458,7 @@ static uint32_t GetGoodnessColor( float inRatio )
 void SourceView::RenderSymbolSourceView( const AddrStatData& as, Worker& worker, View& view, bool hasInlines )
 {
     const auto scale = GetScale();
-    if( hasInlines && !m_calcInlineStats && ( ( as.ipTotalAsm.local + as.ipTotalAsm.ext ) > 0 || ( view.GetRange( RangeId::Statistics ).active && worker.GetSamplesForSymbol( m_baseAddr ) ) ) )
+    if( hasInlines && !m_calcInlineStats && ( ( as.ipTotalAsm.local + as.ipTotalAsm.ext ) > 0 || ( view.GetRange( RangeId::Statistics ).active && worker.AreSymbolSamplesReady() && worker.GetSamplesForSymbol( m_baseAddr ) ) ) )
     {
         const auto samplesReady = worker.AreSymbolSamplesReady();
         if( !samplesReady )
@@ -1712,7 +1732,7 @@ void SourceView::RenderSymbolSourceView( const AddrStatData& as, Worker& worker,
 
     const float bottom = m_srcSampleSelect.empty() ? 0 : ImGui::GetFrameHeight();
     ImGui::SetNextWindowContentSize( ImVec2( m_srcWidth, 0 ) );
-    ImGui::BeginChild( "##sourceView", ImVec2( 0, -bottom ), true, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_HorizontalScrollbar );
+    ImGui::BeginChild( "##sourceView", ImVec2( 0, -bottom ), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_HorizontalScrollbar );
     SetFont();
 
     auto& lines = m_source.get();
@@ -1852,8 +1872,8 @@ void SourceView::RenderSymbolSourceView( const AddrStatData& as, Worker& worker,
             if( buckets[i] < 0 ) continue;
             const auto y0 = round( rect.Min.y + float( i ) / bucketNum * rect.GetHeight() );
             const auto y1 = round( rect.Min.y + float( i + 1 ) / bucketNum * rect.GetHeight() );
-            const auto color = buckets[i] == 0 ? 0x22FFFFFF : ( GetHotnessColor( buckets[i], m_childCalls ? (as.ipMaxSrc.local + as.ipMaxSrc.ext) : as.ipMaxSrc.local ) );
-            const auto glow = GetHotnessGlow( buckets[i], m_childCalls ? (as.ipMaxSrc.local + as.ipMaxSrc.ext) : as.ipMaxSrc.local );
+            const auto color = buckets[i] == 0 ? 0x22FFFFFF : ( GetHotnessColor( buckets[i], m_childCalls ? as.ipMaxSrcSum : as.ipMaxSrc.local ) );
+            const auto glow = GetHotnessGlow( buckets[i], m_childCalls ? as.ipMaxSrcSum : as.ipMaxSrc.local );
             draw->AddRectFilled( ImVec2( x40, y0 ), ImVec2( x60, y1 ), color );
             if( glow )
             {
@@ -2239,7 +2259,7 @@ uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker
 
     const float bottom = m_asmSampleSelect.empty() ? 0 : ImGui::GetFrameHeight();
     ImGui::SetNextWindowContentSize( ImVec2( m_asmWidth, 0 ) );
-    ImGui::BeginChild( "##asmView", ImVec2( 0, -bottom ), true, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_HorizontalScrollbar );
+    ImGui::BeginChild( "##asmView", ImVec2( 0, -bottom ), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_HorizontalScrollbar );
     SetFont();
 
     int maxAddrLen;
@@ -2428,13 +2448,13 @@ uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker
                         }
                         ImGui::EndTooltip();
                         SetFont();
-                        if( ImGui::IsMouseClicked( 0 ) )
+                        if( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
                         {
                             m_targetAddr = v.first;
                             m_selectedAddresses.clear();
                             m_selectedAddresses.emplace( v.first );
                         }
-                        else if( ImGui::IsMouseClicked( 1 ) )
+                        else if( ImGui::IsMouseClicked( ImGuiMouseButton_Right ) )
                         {
                             ImGui::OpenPopup( "jumpPopup" );
                             m_jumpPopupAddr = v.first;
@@ -2801,8 +2821,8 @@ uint64_t SourceView::RenderSymbolAsmView( const AddrStatData& as, Worker& worker
             if( buckets[i] <= 0 ) continue;
             const auto y0 = round( rect.Min.y + float( i ) / bucketNum * rect.GetHeight() );
             const auto y1 = round( rect.Min.y + float( i + 1 ) / bucketNum * rect.GetHeight() );
-            const auto color = GetHotnessColor( buckets[i], m_childCalls ? (as.ipMaxAsm.local + as.ipMaxAsm.ext) : as.ipMaxAsm.local );
-            const auto glow = GetHotnessGlow( buckets[i], m_childCalls ? (as.ipMaxAsm.local + as.ipMaxAsm.ext) : as.ipMaxAsm.local );
+            const auto color = GetHotnessColor( buckets[i], m_childCalls ? as.ipMaxAsmSum : as.ipMaxAsm.local );
+            const auto glow = GetHotnessGlow( buckets[i], m_childCalls ? as.ipMaxAsmSum : as.ipMaxAsm.local );
             draw->AddRectFilled( ImVec2( x40, y0 ), ImVec2( x60, y1 ), color );
             if( glow )
             {
@@ -2986,7 +3006,7 @@ void SourceView::RenderLine( const Tokenizer::Line& line, int lineNum, const Add
     }
     else if( lineNum == m_selectedLine )
     {
-        draw->AddRectFilled( wpos + ImVec2( 0, 1 ), wpos + ImVec2( w, ty ), 0xFF333322 );
+        draw->AddRectFilled( wpos + ImVec2( 0, 1 ), wpos + ImVec2( w, ty ), 0xFF444433 );
     }
 
     bool hasHwData = false;
@@ -3109,7 +3129,7 @@ void SourceView::RenderLine( const Tokenizer::Line& line, int lineNum, const Add
                 ImGui::EndTooltip();
                 SetFont();
 
-                if( ImGui::IsMouseClicked( 0 ) )
+                if( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
                 {
                     mouseHandled = true;
                     auto& io = ImGui::GetIO();
@@ -3158,7 +3178,7 @@ void SourceView::RenderLine( const Tokenizer::Line& line, int lineNum, const Add
                         m_srcGroupSelect = lineNum;
                     }
                 }
-                else if( ImGui::IsMouseClicked( 1 ) )
+                else if( ImGui::IsMouseClicked( ImGuiMouseButton_Right ) )
                 {
                     mouseHandled = true;
                     m_srcSampleSelect.clear();
@@ -3169,8 +3189,8 @@ void SourceView::RenderLine( const Tokenizer::Line& line, int lineNum, const Add
             uint32_t col, glow;
             if( m_childCalls )
             {
-                col = GetHotnessColor( ipcnt.local + ipcnt.ext, as.ipMaxSrc.local + as.ipMaxSrc.ext );
-                glow = GetHotnessGlow( ipcnt.local + ipcnt.ext, as.ipMaxSrc.local + as.ipMaxSrc.ext );
+                col = GetHotnessColor( ipcnt.local + ipcnt.ext, as.ipMaxSrcSum );
+                glow = GetHotnessGlow( ipcnt.local + ipcnt.ext, as.ipMaxSrcSum );
             }
             else
             {
@@ -3277,10 +3297,10 @@ void SourceView::RenderLine( const Tokenizer::Line& line, int lineNum, const Add
     if( match > 0 && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect( wpos, wpos + ImVec2( w, ty ) ) )
     {
         draw->AddRectFilled( wpos + ImVec2( 0, 1 ), wpos + ImVec2( w, ty ), 0x11FFFFFF );
-        if( !mouseHandled && ( ImGui::IsMouseClicked( 0 ) || ImGui::IsMouseClicked( 1 ) ) )
+        if( !mouseHandled && ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) || ImGui::IsMouseClicked( ImGuiMouseButton_Right ) ) )
         {
             m_displayMode = DisplayMixed;
-            SelectLine( lineNum, worker, ImGui::IsMouseClicked( 0 ) );
+            SelectLine( lineNum, worker, ImGui::IsMouseClicked( ImGuiMouseButton_Left ) );
         }
         else
         {
@@ -3329,11 +3349,11 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
     }
     else if( m_selectedAddresses.find( line.addr ) != m_selectedAddresses.end() )
     {
-        draw->AddRectFilled( wpos + ImVec2( 0, 1 ), wpos + ImVec2( w, ty ), 0xFF333322 );
+        draw->AddRectFilled( wpos + ImVec2( 0, 1 ), wpos + ImVec2( w, ty ), 0xFF444433 );
     }
     if( line.addr == m_highlightAddr )
     {
-        draw->AddRectFilled( wpos + ImVec2( 0, 1 ), wpos + ImVec2( w, ty ), 0xFF222233 );
+        draw->AddRectFilled( wpos + ImVec2( 0, 1 ), wpos + ImVec2( w, ty ), 0xFF333344 );
     }
 
     const auto asmIdx = &line - m_asm.data();
@@ -3451,18 +3471,18 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
 
                 if( hw ) PrintHwSampleTooltip( cycles, retired, cacheRef, cacheMiss, branchRetired, branchMiss, false );
 
-                const auto stats = worker.GetSymbolStats( symAddrParents );
-                if( stats && !stats->parents.empty() )
+                const auto stats = worker.AreCallstackSamplesReady() ? worker.GetSymbolStats( symAddrParents ) : nullptr;
+                if( stats && !stats->wasReached.empty() )
                 {
                     ImGui::Separator();
-                    TextFocused( "Entry call stacks:", RealToString( stats->parents.size() ) );
+                    TextFocused( "Entry call stacks:", RealToString( stats->wasReachedNonReentrant.size() ) );
                     ImGui::SameLine();
                     TextDisabledUnformatted( "(middle click to view)" );
                 }
                 ImGui::EndTooltip();
                 SetFont();
 
-                if( ImGui::IsMouseClicked( 0 ) )
+                if( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
                 {
                     auto& io = ImGui::GetIO();
                     if( io.KeyCtrl )
@@ -3510,12 +3530,12 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                         m_asmGroupSelect = idx;
                     }
                 }
-                else if( ImGui::IsMouseClicked( 1 ) )
+                else if( ImGui::IsMouseClicked( ImGuiMouseButton_Right ) )
                 {
                     m_asmSampleSelect.clear();
                     m_asmGroupSelect = -1;
                 }
-                else if( stats && !stats->parents.empty() && ImGui::IsMouseClicked( 2 ) )
+                else if( stats && !stats->wasReached.empty() && ImGui::IsMouseClicked( ImGuiMouseButton_Middle ) )
                 {
                     view.ShowSampleParents( symAddrParents, false );
                 }
@@ -3524,8 +3544,8 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
             uint32_t col, glow;
             if( m_childCalls )
             {
-                col = GetHotnessColor( ipcnt.local + ipcnt.ext, as.ipMaxAsm.local + as.ipMaxAsm.ext );
-                glow = GetHotnessGlow( ipcnt.local + ipcnt.ext, as.ipMaxAsm.local + as.ipMaxAsm.ext );
+                col = GetHotnessColor( ipcnt.local + ipcnt.ext, as.ipMaxAsmSum );
+                glow = GetHotnessGlow( ipcnt.local + ipcnt.ext, as.ipMaxAsmSum );
             }
             else
             {
@@ -4264,7 +4284,7 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                 SetFont();
             }
         }
-        if( ImGui::IsMouseClicked( 0 ) )
+        if( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
         {
             m_asmSelected = asmIdx;
             ResetAsm();
@@ -4297,7 +4317,7 @@ void SourceView::RenderAsmLine( AsmLine& line, const AddrStat& ipcnt, const Addr
                 FollowRead( asmIdx, line.writeX86[idx++], 64 );
             }
         }
-        else if( ImGui::IsMouseClicked( 1 ) )
+        else if( ImGui::IsMouseClicked( ImGuiMouseButton_Right ) )
         {
             m_asmSelected = -1;
             ResetAsm();
@@ -4946,6 +4966,7 @@ uint32_t SourceView::CountAsmIpStats( uint64_t baseAddr, const Worker& worker, b
 {
     if( limitView )
     {
+        if( !worker.AreSymbolSamplesReady() ) return 0;
         auto vec = worker.GetSamplesForSymbol( baseAddr );
         if( !vec ) return 0;
         auto& range = view.GetRange( RangeId::Statistics );
@@ -4956,6 +4977,7 @@ uint32_t SourceView::CountAsmIpStats( uint64_t baseAddr, const Worker& worker, b
     }
     else
     {
+        if( !worker.AreCallstackSamplesReady() ) return 0;
         uint32_t cnt = 0;
         auto ipmap = worker.GetSymbolInstructionPointers( baseAddr );
         if( !ipmap ) return 0;

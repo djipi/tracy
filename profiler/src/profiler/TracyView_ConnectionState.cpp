@@ -23,7 +23,7 @@ bool View::DrawConnection()
         std::shared_lock<std::shared_mutex> lock( m_worker.GetMbpsDataLock() );
         TextFocused( isConnected ? "Connected to:" : "Disconnected:", m_worker.GetAddr().c_str() );
         const auto& mbpsVector = m_worker.GetMbpsData();
-        const auto mbps = mbpsVector.back();
+        const auto mbps = mbpsVector.empty() ? 0.f : mbpsVector.back();
         char buf[64];
         if( mbps < 0.1f )
         {
@@ -79,7 +79,6 @@ bool View::DrawConnection()
 
     FrameImage lastFrameImage{};
     {
-        Worker::MainThreadDataLockGuard lock = m_worker.ObtainLockForMainThread();
         ImGui::SameLine();
         TextFocused( "+", RealToString( m_worker.GetSendInFlight() ) );
         const auto sz = m_worker.GetFrameCount( *m_frames );
@@ -94,7 +93,7 @@ bool View::DrawConnection()
             TextFocused( "Frame time:", TimeToString( dt ) );
         }        
         const auto& fis = m_worker.GetFrameImages();
-        // Keep a copy here since the worker may modify the frame images vector while we do not own the lock
+        // Keep a copy so the frame image data is retained independently of the worker storage.
         if( !fis.empty() ) lastFrameImage = *fis.back();
     }
 
@@ -105,7 +104,7 @@ bool View::DrawConnection()
     }
 
     ImGui::Separator();
-    if( ImGui::Button( ICON_FA_FLOPPY_DISK " Save trace" ) && m_saveThreadState.load( std::memory_order_relaxed ) == SaveThreadState::Inert )
+    if( ImGui::Button( ICON_FA_FLOPPY_DISK " Save trace…" ) && m_saveThreadState.load( std::memory_order_relaxed ) == SaveThreadState::Inert )
     {
         auto cb = [this]( const char* fn ) {
             const auto sz = strlen( fn );
@@ -130,7 +129,6 @@ bool View::DrawConnection()
 
     ImGui::SameLine( 0, 2 * ty );
     const char* stopStr = ICON_FA_PLUG " Stop";
-    Worker::MainThreadDataLockGuard lock = m_worker.ObtainLockForMainThread();
     if( !m_disconnectIssued && m_worker.IsConnected() )
     {
         if( ImGui::Button( stopStr ) )

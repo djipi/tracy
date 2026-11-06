@@ -209,8 +209,10 @@ void View::DrawCompare()
 {
     const auto scale = GetScale();
     ImGui::SetNextWindowSize( ImVec2( 590 * scale, 800 * scale ), ImGuiCond_FirstUseEver );
+    m_compareConstraint.Constrain();
     ImGui::Begin( "Compare traces", &m_compare.show, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse );
     if( ImGui::GetCurrentWindowRead()->SkipItems ) { ImGui::End(); return; }
+    if( s_config.achievements ) Achieve( "compareTraces" );
 #if defined TRACY_NO_FILESELECTOR
     ImGui::TextWrapped( "File selector is disabled in this build." );
     ImGui::TextWrapped( "Rebuild without the TRACY_NO_FILESELECTOR macro to enable trace comparison." );
@@ -243,6 +245,20 @@ void View::DrawCompare()
                             {
                                 m_compare.badVer.state = BadVersionState::UnsupportedVersion;
                                 m_compare.badVer.version = e.version;
+                            }
+                            catch( const tracy::LegacyVersion& e )
+                            {
+                                m_compare.badVer.state = BadVersionState::LegacyVersion;
+                                m_compare.badVer.version = e.version;
+                            }
+                            catch( const tracy::LoadFailure& e )
+                            {
+                                m_compare.badVer.state = BadVersionState::LoadFailure;
+                                m_compare.badVer.msg = e.msg;
+                            }
+                            catch( const tracy::FileReadError& )
+                            {
+                                m_compare.badVer.state = BadVersionState::ReadError;
                             }
                         } );
                     }
@@ -312,6 +328,7 @@ void View::DrawCompare()
     if( ImGui::Button( ICON_FA_TRASH_CAN " Unload" ) )
     {
         m_compare.Reset();
+        m_compare.ResetLimitRange();
         m_compare.second.reset();
         m_compare.userData.reset();
         ImGui::End();
@@ -320,7 +337,128 @@ void View::DrawCompare()
     ImGui::SameLine();
     ImGui::Spacing();
     ImGui::SameLine();
-    ImGui::Text( "Compare mode: " );
+    if( ImGui::Checkbox( "Limit range", &m_compare.limitRange ) )
+    {
+        m_compare.ResetSelection();
+        if( m_compare.range[0].min == 0 && m_compare.range[0].max == 0 )
+        {
+            m_compare.range[0].min = m_worker.GetFirstTime();
+            m_compare.range[0].max = m_worker.GetLastTime();
+        }
+        if( m_compare.range[1].min == 0 && m_compare.range[1].max == 0 )
+        {
+            m_compare.range[1].min = m_compare.second->GetFirstTime();
+            m_compare.range[1].max = m_compare.second->GetLastTime();
+        }
+    }
+    if( m_compare.limitRange )
+    {
+        ImGui::SameLine();
+        TextColoredUnformatted( 0xFF00FFFF, ICON_FA_TRIANGLE_EXCLAMATION );
+
+        ImGui::Indent();
+        TextColoredUnformatted( ImVec4( 0xDD/255.f, 0xDD/255.f, 0x22/255.f, 1.f ), ICON_FA_LEMON );
+        ImGui::SameLine();
+        if( ImGui::SmallButton( ICON_FA_COPY " Copy from…##this" ) ) ImGui::OpenPopup( "compareCopyFromThis" );
+        ImGui::SameLine();
+        if( ImGui::SmallButton( "Reset##this" ) )
+        {
+            m_compare.range[0].min = m_worker.GetFirstTime();
+            m_compare.range[0].max = m_worker.GetLastTime();
+        }
+        ImGui::SameLine();
+        TextDisabledUnformatted( "This range:" );
+        ImGui::SameLine();
+        ImGui::Text( "%s - %s (%s)", TimeToStringExact( m_compare.range[0].min ), TimeToStringExact( m_compare.range[0].max ), TimeToString( m_compare.range[0].max - m_compare.range[0].min ) );
+
+        TextColoredUnformatted( ImVec4( 0xDD/255.f, 0x22/255.f, 0x22/255.f, 1.f ), ICON_FA_GEM );
+        ImGui::SameLine();
+        if( ImGui::SmallButton( ICON_FA_COPY " Copy from…##ext" ) ) ImGui::OpenPopup( "compareCopyFromExt" );
+        ImGui::SameLine();
+        if( ImGui::SmallButton( "Reset##ext" ) )
+        {
+            m_compare.range[1].min = m_compare.second->GetFirstTime();
+            m_compare.range[1].max = m_compare.second->GetLastTime();
+        }
+        ImGui::SameLine();
+        TextDisabledUnformatted( "External range:" );
+        ImGui::SameLine();
+        ImGui::Text( "%s - %s (%s)", TimeToStringExact( m_compare.range[1].min ), TimeToStringExact( m_compare.range[1].max ), TimeToString( m_compare.range[1].max - m_compare.range[1].min ) );
+
+        if( ImGui::BeginPopup( "compareCopyFromThis" ) )
+        {
+            if( m_annotations.empty() )
+            {
+                TextDisabledUnformatted( ICON_FA_NOTE_STICKY " Annotation" );
+            }
+            else if( ImGui::BeginMenu( ICON_FA_NOTE_STICKY " Annotation" ) )
+            {
+                int id = 0;
+                for( auto& v : m_annotations )
+                {
+                    ImGui::PushID( id++ );
+                    SmallColorBox( v->color );
+                    ImGui::SameLine();
+                    if( ImGui::MenuItem( v->text.empty() ? "<unnamed>" : v->text.c_str() ) )
+                    {
+                        m_compare.range[0].min = v->range.min;
+                        m_compare.range[0].max = v->range.max;
+                        m_compare.ResetSelection();
+                    }
+                    ImGui::PopID();
+                    ImGui::SameLine();
+                    ImGui::TextDisabled( "%s - %s (%s)", TimeToStringExact( v->range.min ), TimeToStringExact( v->range.max ), TimeToString( v->range.max - v->range.min ) );
+                }
+                ImGui::EndMenu();
+            }
+            const auto sel = ListSectionsMenu( m_worker );
+            if( sel.active )
+            {
+                m_compare.range[0].min = sel.min;
+                m_compare.range[0].max = sel.max;
+                m_compare.ResetSelection();
+            }
+            ImGui::EndPopup();
+        }
+        if( ImGui::BeginPopup( "compareCopyFromExt" ) )
+        {
+            const auto& ann = m_compare.userData->GetAnnotations();
+            if( ann.empty() )
+            {
+                TextDisabledUnformatted( ICON_FA_NOTE_STICKY " Annotation" );
+            }
+            else if( ImGui::BeginMenu( ICON_FA_NOTE_STICKY " Annotation" ) )
+            {
+                int id = 0;
+                for( auto& v : ann )
+                {
+                    ImGui::PushID( id++ );
+                    SmallColorBox( v->color );
+                    ImGui::SameLine();
+                    if( ImGui::MenuItem( v->text.empty() ? "<unnamed>" : v->text.c_str() ) )
+                    {
+                        m_compare.range[1].min = v->range.min;
+                        m_compare.range[1].max = v->range.max;
+                        m_compare.ResetSelection();
+                    }
+                    ImGui::PopID();
+                    ImGui::SameLine();
+                    ImGui::TextDisabled( "%s - %s (%s)", TimeToStringExact( v->range.min ), TimeToStringExact( v->range.max ), TimeToString( v->range.max - v->range.min ) );
+                }
+                ImGui::EndMenu();
+            }
+            const auto sel = ListSectionsMenu( *m_compare.second );
+            if( sel.active )
+            {
+                m_compare.range[1].min = sel.min;
+                m_compare.range[1].max = sel.max;
+                m_compare.ResetSelection();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::Unindent();
+    }
+
     const auto oldMode = m_compare.compareMode;
     ImGui::BeginTabBar( "compareTabs", ImGuiTabBarFlags_DrawSelectedOverline );
     if( ImGui::BeginTabItem( "Zones" ) )
@@ -362,6 +500,7 @@ void View::DrawCompare()
             m_compare.diffDirection = !m_compare.diffDirection;
             m_compare.Reset();
         }
+        m_compareConstraint.MarkMinWidth();
         ImGui::Separator();
 
         ImGui::BeginChild( "##diff" );
@@ -511,6 +650,7 @@ void View::DrawCompare()
             }
             ImGui::SameLine();
             ImGui::Checkbox( "Ignore case", &m_compare.ignoreCase );
+            m_compareConstraint.MarkMinWidth();
 
             if( findClicked )
             {
@@ -605,6 +745,7 @@ void View::DrawCompare()
             {
                 ImGui::Separator();
                 ImGui::TextWrapped( "Both traces must have matches." );
+                ImGui::EndChild();
                 ImGui::End();
                 return;
             }
@@ -726,41 +867,105 @@ void View::DrawCompare()
             zones0.ensure_sorted();
             zones1.ensure_sorted();
 
-            tmin = std::min( zoneData0.min, zoneData1.min );
-            tmax = std::max( zoneData0.max, zoneData1.max );
-
-            size0 = zones0.size();
-            size1 = zones1.size();
-            total0 = zoneData0.total;
-            total1 = zoneData1.total;
-            sumSq0 = zoneData0.sumSq;
-            sumSq1 = zoneData1.sumSq;
-
-            const size_t zsz[2] = { size0, size1 };
-            for( int k=0; k<2; k++ )
+            if( m_compare.limitRange )
             {
-                if( m_compare.sortedNum[k] != zsz[k] )
-                {
-                    auto& zones = k == 0 ? zones0 : zones1;
-                    auto& vec = m_compare.sorted[k];
-                    vec.reserve( zsz[k] );
-                    int64_t total = m_compare.total[k];
-                    size_t i;
-                    for( i=m_compare.sortedNum[k]; i<zsz[k]; i++ )
-                    {
-                        auto& zone = *zones[i].Zone();
-                        const auto t = zone.End() - zone.Start();
-                        vec.emplace_back( t );
-                        total += t;
-                    }
-                    auto mid = vec.begin() + m_compare.sortedNum[k];
-                    pdqsort_branchless( mid, vec.end() );
-                    std::inplace_merge( vec.begin(), mid, vec.end() );
+                constexpr auto cmp = []( const auto& e, int64_t v ){ return e.Zone()->Start() < v; };
+                auto lo0It = std::lower_bound( zones0.begin(), zones0.end(), m_compare.range[0].min, cmp );
+                auto hi0It = std::lower_bound( lo0It, zones0.end(), m_compare.range[0].max, cmp );
+                auto lo1It = std::lower_bound( zones1.begin(), zones1.end(), m_compare.range[1].min, cmp );
+                auto hi1It = std::lower_bound( lo1It, zones1.end(), m_compare.range[1].max, cmp );
+                const size_t lo0 = std::distance( zones0.begin(), lo0It );
+                const size_t hi0 = std::distance( zones0.begin(), hi0It );
+                const size_t lo1 = std::distance( zones1.begin(), lo1It );
+                const size_t hi1 = std::distance( zones1.begin(), hi1It );
+                size0 = hi0 - lo0;
+                size1 = hi1 - lo1;
+                const size_t zsz[2] = { size0, size1 };
+                const size_t lo[2] = { lo0, lo1 };
 
-                    m_compare.average[k] = float( total ) / i;
-                    m_compare.median[k] = vec[i/2];
-                    m_compare.total[k] = total;
-                    m_compare.sortedNum[k] = i;
+                for( int k=0; k<2; k++ )
+                {
+                    if( m_compare.sortedNum[k] != zsz[k] )
+                    {
+                        auto& zones = k == 0 ? zones0 : zones1;
+                        auto& vec = m_compare.sorted[k];
+                        vec.clear();
+                        vec.reserve( zsz[k] );
+                        int64_t total = 0;
+                        double sumSq = 0;
+                        for( size_t i = 0; i < zsz[k]; i++ )
+                        {
+                            auto& zone = *zones[lo[k] + i].Zone();
+                            const auto t = zone.End() - zone.Start();
+                            vec.emplace_back( t );
+                            total += t;
+                            sumSq += double(t) * t;
+                        }
+                        pdqsort_branchless( vec.begin(), vec.end() );
+                        if( !vec.empty() )
+                        {
+                            m_compare.average[k] = float( total ) / vec.size();
+                            m_compare.median[k] = vec[vec.size() / 2];
+                        }
+                        m_compare.total[k] = total;
+                        m_compare.sumSq[k] = sumSq;
+                        m_compare.sortedNum[k] = vec.size();
+                    }
+                }
+
+                total0 = m_compare.total[0];
+                total1 = m_compare.total[1];
+                sumSq0 = m_compare.sumSq[0];
+                sumSq1 = m_compare.sumSq[1];
+                if( !m_compare.sorted[0].empty() && !m_compare.sorted[1].empty() )
+                {
+                    tmin = std::min( m_compare.sorted[0].front(), m_compare.sorted[1].front() );
+                    tmax = std::max( m_compare.sorted[0].back(), m_compare.sorted[1].back() );
+                }
+                else
+                {
+                    tmin = std::numeric_limits<int64_t>::max();
+                    tmax = std::numeric_limits<int64_t>::min();
+                }
+            }
+            else
+            {
+                tmin = std::min( zoneData0.min, zoneData1.min );
+                tmax = std::max( zoneData0.max, zoneData1.max );
+
+                size0 = zones0.size();
+                size1 = zones1.size();
+                total0 = zoneData0.total;
+                total1 = zoneData1.total;
+                sumSq0 = zoneData0.sumSq;
+                sumSq1 = zoneData1.sumSq;
+
+                const size_t zsz[2] = { size0, size1 };
+                for( int k=0; k<2; k++ )
+                {
+                    if( m_compare.sortedNum[k] != zsz[k] )
+                    {
+                        auto& zones = k == 0 ? zones0 : zones1;
+                        auto& vec = m_compare.sorted[k];
+                        vec.reserve( zsz[k] );
+                        int64_t total = m_compare.total[k];
+                        size_t i;
+                        for( i=m_compare.sortedNum[k]; i<zsz[k]; i++ )
+                        {
+                            auto& zone = *zones[i].Zone();
+                            const auto t = zone.End() - zone.Start();
+                            vec.emplace_back( t );
+                            total += t;
+                        }
+                        auto mid = vec.begin() + m_compare.sortedNum[k];
+                        pdqsort_branchless( mid, vec.end() );
+                        std::inplace_merge( vec.begin(), mid, vec.end() );
+
+                        m_compare.average[k] = float( total ) / i;
+                        m_compare.median[k] = vec[i/2];
+                        m_compare.total[k] = total;
+                        m_compare.sortedNum[k] = i;
+                    }
                 }
             }
         }
@@ -769,42 +974,107 @@ void View::DrawCompare()
             const auto& f0 = m_worker.GetFrames()[m_compare.selMatch[0]];
             const auto& f1 = m_compare.second->GetFrames()[m_compare.selMatch[1]];
 
-            tmin = std::min( f0->min, f1->min );
-            tmax = std::max( f0->max, f1->max );
-
-            size0 = f0->frames.size();
-            size1 = f1->frames.size();
-            total0 = f0->total;
-            total1 = f1->total;
-            sumSq0 = f0->sumSq;
-            sumSq1 = f1->sumSq;
-
-            const size_t zsz[2] = { size0, size1 };
-            for( int k=0; k<2; k++ )
+            if( m_compare.limitRange )
             {
-                if( m_compare.sortedNum[k] != zsz[k] )
-                {
-                    auto& frameSet = k == 0 ? f0 : f1;
-                    auto worker = k == 0 ? &m_worker : m_compare.second.get();
-                    auto& vec = m_compare.sorted[k];
-                    vec.reserve( zsz[k] );
-                    int64_t total = m_compare.total[k];
-                    size_t i;
-                    for( i=m_compare.sortedNum[k]; i<zsz[k]; i++ )
-                    {
-                        if( worker->GetFrameEnd( *frameSet, i ) == worker->GetLastTime() ) break;
-                        const auto t = worker->GetFrameTime( *frameSet, i );
-                        vec.emplace_back( t );
-                        total += t;
-                    }
-                    auto mid = vec.begin() + m_compare.sortedNum[k];
-                    pdqsort_branchless( mid, vec.end() );
-                    std::inplace_merge( vec.begin(), mid, vec.end() );
+                constexpr auto cmp = []( const FrameEvent& e, int64_t v ){ return e.start < v; };
+                auto lo0It = std::lower_bound( f0->frames.begin(), f0->frames.end(), m_compare.range[0].min, cmp );
+                auto hi0It = std::lower_bound( lo0It, f0->frames.end(), m_compare.range[0].max, cmp );
+                auto lo1It = std::lower_bound( f1->frames.begin(), f1->frames.end(), m_compare.range[1].min, cmp );
+                auto hi1It = std::lower_bound( lo1It, f1->frames.end(), m_compare.range[1].max, cmp );
+                const size_t lo0 = std::distance( f0->frames.begin(), lo0It );
+                const size_t hi0 = std::distance( f0->frames.begin(), hi0It );
+                const size_t lo1 = std::distance( f1->frames.begin(), lo1It );
+                const size_t hi1 = std::distance( f1->frames.begin(), hi1It );
+                size0 = hi0 - lo0;
+                size1 = hi1 - lo1;
+                const size_t zsz[2] = { size0, size1 };
+                const size_t lo[2] = { lo0, lo1 };
 
-                    m_compare.average[k] = float( total ) / i;
-                    m_compare.median[k] = vec[i/2];
-                    m_compare.total[k] = total;
-                    m_compare.sortedNum[k] = i;
+                for( int k=0; k<2; k++ )
+                {
+                    if( m_compare.sortedNum[k] != zsz[k] )
+                    {
+                        auto& frameSet = k == 0 ? f0 : f1;
+                        auto worker = k == 0 ? &m_worker : m_compare.second.get();
+                        auto& vec = m_compare.sorted[k];
+                        vec.clear();
+                        vec.reserve( zsz[k] );
+                        int64_t total = 0;
+                        double sumSq = 0;
+                        for( size_t i = 0; i < zsz[k]; i++ )
+                        {
+                            if( worker->GetFrameEnd( *frameSet, lo[k] + i ) == worker->GetLastTime() ) break;
+                            const auto t = worker->GetFrameTime( *frameSet, lo[k] + i );
+                            vec.emplace_back( t );
+                            total += t;
+                            sumSq += double(t) * t;
+                        }
+                        pdqsort_branchless( vec.begin(), vec.end() );
+                        if( !vec.empty() )
+                        {
+                            m_compare.average[k] = float( total ) / vec.size();
+                            m_compare.median[k] = vec[vec.size() / 2];
+                        }
+                        m_compare.total[k] = total;
+                        m_compare.sumSq[k] = sumSq;
+                        m_compare.sortedNum[k] = vec.size();
+                    }
+                }
+
+                total0 = m_compare.total[0];
+                total1 = m_compare.total[1];
+                sumSq0 = m_compare.sumSq[0];
+                sumSq1 = m_compare.sumSq[1];
+                if( !m_compare.sorted[0].empty() && !m_compare.sorted[1].empty() )
+                {
+                    tmin = std::min( m_compare.sorted[0].front(), m_compare.sorted[1].front() );
+                    tmax = std::max( m_compare.sorted[0].back(), m_compare.sorted[1].back() );
+                }
+                else
+                {
+                    tmin = std::numeric_limits<int64_t>::max();
+                    tmax = std::numeric_limits<int64_t>::min();
+                }
+            }
+            else
+            {
+                tmin = std::min( f0->min, f1->min );
+                tmax = std::max( f0->max, f1->max );
+
+                size0 = f0->frames.size();
+                size1 = f1->frames.size();
+                total0 = f0->total;
+                total1 = f1->total;
+                sumSq0 = f0->sumSq;
+                sumSq1 = f1->sumSq;
+
+                const size_t zsz[2] = { size0, size1 };
+                for( int k=0; k<2; k++ )
+                {
+                    if( m_compare.sortedNum[k] != zsz[k] )
+                    {
+                        auto& frameSet = k == 0 ? f0 : f1;
+                        auto worker = k == 0 ? &m_worker : m_compare.second.get();
+                        auto& vec = m_compare.sorted[k];
+                        vec.reserve( zsz[k] );
+                        int64_t total = m_compare.total[k];
+                        size_t i;
+                        for( i=m_compare.sortedNum[k]; i<zsz[k]; i++ )
+                        {
+                            if( worker->GetFrameEnd( *frameSet, i ) == worker->GetLastTime() ) break;
+                            const auto t = worker->GetFrameTime( *frameSet, i );
+                            vec.emplace_back( t );
+                            total += t;
+                        }
+                        auto mid = vec.begin() + m_compare.sortedNum[k];
+                        pdqsort_branchless( mid, vec.end() );
+                        std::inplace_merge( vec.begin(), mid, vec.end() );
+
+                        m_compare.average[k] = float( total ) / i;
+                        m_compare.median[k] = vec[i/2];
+                        m_compare.total[k] = total;
+                        m_compare.sortedNum[k] = i;
+                    }
                 }
             }
         }
@@ -1133,6 +1403,7 @@ void View::DrawCompare()
                         ImGui::TextDisabled( "(%.2f%%)", 100.f * sd / m_compare.average[1] );
                         TooltipIfHovered( "Coefficient of variation" );
                     }
+                    m_compareConstraint.MarkMinWidth();
                     ImGui::Indent();
                     PrintSpeedupOrSlowdown( m_compare.average[0], m_compare.average[1], "Mean" );
                     PrintSpeedupOrSlowdown( m_compare.median[0], m_compare.median[1], "Median" );
@@ -1187,6 +1458,7 @@ void View::DrawCompare()
                     TextColoredUnformatted( ImVec4( 0xDD/511.f, 0xDD/511.f, 0x22/511.f, 1.f ), ICON_FA_LEMON );
                     ImGui::SameLine();
                     PercentileLine( "P99.9:", p99_9[0] );
+                    m_compareConstraint.MarkMinWidth();
 
                     TextColoredUnformatted( ImVec4( 0xDD/511.f, 0x22/511.f, 0x22/511.f, 1.f ), ICON_FA_GEM );
                     ImGui::SameLine();
@@ -1209,6 +1481,7 @@ void View::DrawCompare()
                     TextColoredUnformatted( ImVec4( 0xDD/511.f, 0x22/511.f, 0x22/511.f, 1.f ), ICON_FA_GEM );
                     ImGui::SameLine();
                     PercentileLine( "P99.9:", p99_9[1] );
+                    m_compareConstraint.MarkMinWidth();
 
                     ImGui::Indent();
                     PrintSpeedupOrSlowdown( p75[0], p75[1], "P75" );
@@ -1437,6 +1710,17 @@ void View::DrawCompare()
                         TextDisabledUnformatted( "Time range:" );
                         ImGui::SameLine();
                         ImGui::Text( "%s - %s", TimeToString( t0 ), TimeToString( t1 ) );
+                        ImGui::SameLine();
+                        const auto fps0 = round( 1000000000.0 / t0 );
+                        const auto fps1 = round( 1000000000.0 / t1 );
+                        if( fps0 == fps1 )
+                        {
+                            ImGui::TextDisabled( "(%s FPS)", RealToString( fps0 ) );
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled( "(%s FPS - %s FPS)", RealToString( fps0 ), RealToString( fps1 ) );
+                        }
                         TextDisabledUnformatted( "Count:" );
                         ImGui::SameLine();
                         ImGui::Text( "%s / %s", RealToString( floor( bins[bin].v0 ) ), RealToString( floor( bins[bin].v1 ) ) );
@@ -1462,6 +1746,14 @@ void View::DrawCompare()
                     }
                 }
             }
+        }
+        else
+        {
+            ImGui::PushFont( g_fonts.normal, FontBig );
+            ImGui::Dummy( ImVec2( 0, ( ImGui::GetContentRegionAvail().y - ImGui::GetTextLineHeight() * 2 ) * 0.5f ) );
+            TextCentered( ICON_FA_FROG );
+            TextCentered( "No data to compare" );
+            ImGui::PopFont();
         }
     }
 

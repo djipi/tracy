@@ -13,6 +13,7 @@ void View::DrawMessages()
 
     const auto scale = GetScale();
     ImGui::SetNextWindowSize( ImVec2( 1200 * scale, 600 * scale ), ImGuiCond_FirstUseEver );
+    m_messagesConstraint.Constrain();
     ImGui::Begin( "Messages", &m_showMessages );
     if( ImGui::GetCurrentWindowRead()->SkipItems ) { ImGui::End(); return; }
 
@@ -28,10 +29,13 @@ void View::DrawMessages()
         return;
     }
 
+    if( s_config.achievements ) Achieve( "logMessages" );
+
     ImGui::AlignTextToFramePadding();
     ImGui::Text( ICON_FA_FILTER );
     ImGui::SameLine();
-    bool filterChanged = m_messageFilter.m_text.Draw( "##Filter messages", 200 );
+    ImGui::SetNextItemWidth( 200 );
+    bool filterChanged = m_messageFilter.m_text.Draw( "##Filter messages" );
 
     ImGui::SameLine();
     ImGui::Spacing();
@@ -137,6 +141,7 @@ void View::DrawMessages()
         ImGui::Checkbox( ICON_FA_IMAGE " Show frame images", &m_showMessageImages );
     }
 
+    m_messagesConstraint.MarkMinWidth();
     UpdateThreadOrder();
 
     bool threadsChanged = false;
@@ -207,6 +212,7 @@ void View::DrawMessages()
             if( t->messages.empty() ) continue;
             float w = ImGui::GetFrameHeight() * 2 + ImGui::CalcTextSize( m_worker.GetThreadName( t->id ) ).x + cntWidth + style.ItemSpacing.x * 3;
             if( crash.thread == t->id ) w += style.ItemSpacing.x + ImGui::CalcTextSize( ICON_FA_SKULL " Crashed" ).x;
+            if( m_worker.IsDeadlockedThread( t->id ) ) w += style.ItemSpacing.x + ImGui::CalcTextSize( ICON_FA_ARROWS_SPIN " Deadlock" ).x;
             if( t->isFiber ) w += style.ItemSpacing.x + ImGui::CalcTextSize( "Fiber" ).x;
             probe = std::max( probe, w );
         }
@@ -239,6 +245,11 @@ void View::DrawMessages()
             {
                 ImGui::SameLine();
                 TextColoredUnformatted( ImVec4( 1.f, 0.2f, 0.2f, 1.f ), ICON_FA_SKULL " Crashed" );
+            }
+            if( m_worker.IsDeadlockedThread( t->id ) )
+            {
+                ImGui::SameLine();
+                TextColoredUnformatted( ImVec4( 1.f, 0.2f, 0.2f, 1.f ), ICON_FA_ARROWS_SPIN " Deadlock" );
             }
             if( t->isFiber )
             {
@@ -370,7 +381,6 @@ void View::DrawMessageLine( const MessageData& msg, bool hasCallstack, int& idx 
         m_msgToFocus.Decay( nullptr );
         m_messagesScrollBottom = false;
     }
-    ImGui::PopID();
     ImGui::TableNextColumn();
     SmallColorBox( GetThreadColor( tid, 0 ) );
     ImGui::SameLine();
@@ -399,6 +409,16 @@ void View::DrawMessageLine( const MessageData& msg, bool hasCallstack, int& idx 
         ImGui::EndTooltip();
     }
     ImGui::PopStyleColor();
+    if( ImGui::IsItemClicked( ImGuiMouseButton_Right ) ) ImGui::OpenPopup( "MessageContext" );
+    if( ImGui::BeginPopup( "MessageContext" ) )
+    {
+        if( ImGui::Selectable( ICON_FA_CLIPBOARD " Copy message" ) )
+        {
+            ImGui::SetClipboardText( text );
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
     if( hasCallstack )
     {
         ImGui::TableNextColumn();
@@ -410,6 +430,7 @@ void View::DrawMessageLine( const MessageData& msg, bool hasCallstack, int& idx 
             DrawCallstackCalls( cs, 6 );
         }
     }
+    ImGui::PopID();
 }
 
 }

@@ -9,34 +9,12 @@
 namespace tracy
 {
 
-struct Range
-{
-    void StartFrame() { hiMin = hiMax = false; }
-
-    int64_t min = 0;
-    int64_t max = 0;
-    bool active = false;
-    bool hiMin = false;
-    bool hiMax = false;
-    bool modMin = false;
-    bool modMax = false;
-};
-
-struct RangeSlim
-{
-    bool operator==( const Range& other ) const { return other.active == active && other.min == min && other.max == max; }
-    bool operator!=( const Range& other ) const { return !(*this == other); }
-    void operator=( const Range& other ) { active = other.active; min = other.min; max = other.max; }
-
-    int64_t min, max;
-    bool active = false;
-};
-
 struct RangeEntry
 {
     Range* range;
     uint32_t color;
     const char* name;
+    const char* tooltip;
 };
 
 enum class RangeId
@@ -70,10 +48,13 @@ struct ViewData
     uint8_t drawCpuData = true;
     uint8_t drawCpuUsageGraph = true;
     uint8_t drawSamples = true;
+    uint8_t drawSections = true;
+    uint8_t groupSectionsByCategory = false;
     uint8_t dynamicColors = 1;
     uint8_t inheritParentColors = true;
     uint8_t forceColors = false;
     uint8_t ghostZones = true;
+    uint8_t plotsHierarchy = false;
     ShortenName shortenName = ShortenName::NoSpaceAndNormalize;
 
     uint32_t frameTarget = 60;
