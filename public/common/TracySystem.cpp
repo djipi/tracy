@@ -1,7 +1,14 @@
 #ifdef _MSC_VER
 #  pragma warning(disable:4996)
 #endif
-#if defined _WIN32
+#if defined __CYGWIN__
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  include <unistd.h>
+#  include <pwd.h>
+#  include <windows.h>
+#  endif
+#elif defined _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
 #  endif
@@ -103,6 +110,8 @@ TRACY_API uint32_t GetThreadHandleImpl()
 #elif defined __EMSCRIPTEN__
     // Not supported, but let it compile.
     return 0;
+#elif defined __CYGWIN__
+	return uint32_t( GetCurrentThreadId() );
 #else
     // To add support for a platform, retrieve and return the kernel thread identifier here.
     //
